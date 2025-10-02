@@ -1,0 +1,12 @@
+build
+install
+log
+.git
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+*.swp
+*.swo
+out
+

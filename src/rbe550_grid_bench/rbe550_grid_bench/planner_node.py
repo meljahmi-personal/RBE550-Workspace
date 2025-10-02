@@ -3,7 +3,8 @@ from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Path
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import MarkerArray
-from .grid_utils import grid_from_occupancy, world_to_grid, grid_to_world, neighbors_4, neighbors_8, path_length, count_turns
+from .grid_utils import grid_from_occupancy, world_to_grid, grid_to_world, path_length, count_turns
+from .neighbors import neighbors4, neighbors8
 from .rviz_helpers import path_marker, expansions_marker
 from .metrics import Metrics, MetricLogger
 from .algorithms.bfs import BFSPlanner
@@ -70,7 +71,8 @@ class PlannerNode(Node):
     def try_plan(self):
         if self.obst is None or self.start_g is None or self.goal_g is None: return
         planner = self.select_planner()
-        neigh = neighbors_8 if int(self.get_parameter("connectivity").value) == 8 else neighbors_4
+        neigh = neighbors8 if int(self.get_parameter("connectivity").value) == 8 else neighbors4
+
 
         t0 = time.perf_counter()
         result = planner.plan(self.obst, self.start_g, self.goal_g, neigh)
