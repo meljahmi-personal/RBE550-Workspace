@@ -5,7 +5,7 @@ It contains implementations of classical search algorithms (BFS, A*, etc.) and b
 
 ---
 
-## Prerequisites
+## Prerequisites (for local runs)
 
 - **Operating System**: Ubuntu 22.04 or later (Linux recommended).  
 - **ROS 2 Distribution**: Humble Hawksbill (or later).  
@@ -14,7 +14,7 @@ It contains implementations of classical search algorithms (BFS, A*, etc.) and b
   - `colcon` build tools  
   - Standard ROS 2 base installation  
 
-You can install the core tools on Ubuntu with:  
+Install the basics on Ubuntu:
 ```bash
 sudo apt update
 sudo apt install -y python3-pip python3-colcon-common-extensions
@@ -26,8 +26,8 @@ sudo apt install -y python3-pip python3-colcon-common-extensions
 
 1. Clone the repository and move into the workspace:
    ```bash
-   git clone https://github.com/meljahmi-personal/RBE550-Project.git
-   cd RBE550-Project/ros2projrbe550_ws
+   git clone https://github.com/meljahmi-personal/RBE550-Workspace.git
+   cd RBE550-Workspace
    ```
 
 2. Build the workspace:
@@ -40,56 +40,113 @@ sudo apt install -y python3-pip python3-colcon-common-extensions
    ./scripts/run.sh --grid 64 --fill 0.20 --seed 42 --algo astar --moves 8 --no-show
    ```
 
-4. For additional examples, see:
-   - `./scripts/run_random64.sh` – runs BFS and A* on a random seeded grid.  
-   - `./scripts/run_maze32.sh` – runs BFS and A* on an ASCII maze map.  
+4. For additional examples:
+   - `./scripts/run_random64.sh` – BFS and A* on a seeded 64×64 grid.  
+   - `./scripts/run_maze32.sh` – BFS and A* on an ASCII maze map.  
+   - `./scripts/run_check.sh` – quick smoke test with a short run.  
 
 ---
 
-## Docker (Reproducible Runs)
+## Docker (Recommended for Reproducibility)
 
-A Dockerfile is included to ensure fully reproducible results without requiring a manual ROS 2 installation.
+The project includes a Dockerfile and helper script to guarantee consistent results without requiring a local ROS 2 install.
 
-### Build the Docker image
+### One-step build and run
 From the workspace root:
 ```bash
-docker build -t rbe550-bench:humble .
+./scripts/run_docker.sh --steps 10 --render-every 2 --no-show
 ```
 
-### Run benchmarks inside the container
-Random 64×64 grid with fixed seed:
-```bash
-docker run --rm -it rbe550-bench:humble ./scripts/run_random64.sh
-```
+This script will:
+- Build the Docker image (`rbe550-bench`)  
+- Run the benchmark inside the container  
+- Mount `./outputs/` on the host to persist results  
 
-Explicit examples:
-```bash
-docker run --rm -it rbe550-bench:humble ./scripts/run.sh --grid 64 --fill 0.20 --seed 42 --algo bfs   --moves 4 --no-show
-docker run --rm -it rbe550-bench:humble ./scripts/run.sh --grid 64 --fill 0.20 --seed 42 --algo astar --moves 8 --no-show
-```
+### Examples
+- Random 64×64 grid:
+  ```bash
+  ./scripts/run_docker.sh --grid 64 --fill 0.20 --seed 42 --algo astar --moves 8 --no-show
+  ```
 
-Maze example:
-```bash
-docker run --rm -it rbe550-bench:humble ./scripts/run_maze32.sh
-```
+- BFS vs A* on a maze:
+  ```bash
+  ./scripts/run_docker.sh --map maps/maze_32.txt --algo bfs   --moves 4 --no-show
+  ./scripts/run_docker.sh --map maps/maze_32.txt --algo astar --moves 8 --no-show
+  ```
 
-### Persist outputs
-To save outputs to the host machine:
-```bash
-mkdir -p out
-docker run --rm -it -v "$PWD/out:/ws/out" rbe550-bench:humble ./scripts/run_random64.sh
+Outputs (images, logs, GIFs) will appear in:
+```
+./outputs/
 ```
 
 ---
 
 ## Repository Layout
 ```
-ros2projrbe550_ws/
+RBE550-Workspace/
 ├── Dockerfile             # Docker build file
-├── .dockerignore          # excludes build artifacts
+├── .dockerignore          # excludes build artifacts and temp files
 ├── README.md              # this guide
 ├── maps/                  # ASCII maps for benchmarks
-├── scripts/               # build + run scripts
+├── scripts/               # build/run scripts (local + docker)
+│   ├── build.sh           # local build with colcon
+│   ├── run.sh             # local run
+│   ├── run_random64.sh    # convenience: BFS/A* on random grid
+│   ├── run_maze32.sh      # convenience: BFS/A* on maze map
+│   ├── run_check.sh       # quick smoke test
+│   ├── entrypoint.sh      # auto-sources ROS inside Docker
+│   └── run_docker.sh      # one-step build and run in Docker
 └── src/rbe550_grid_bench/ # core ROS 2 package
+
+
 ```
+
+## Scripts Overview
+
+The repository includes helper scripts to simplify building, running, and testing both locally and inside Docker.
+
+### Root Directory
+- **Dockerfile**  
+  Defines the Docker image for reproducible builds and runs. It installs ROS 2 Humble, Python dependencies, and builds the workspace inside `/ws`.
+
+- **.dockerignore**  
+  Excludes unnecessary files (e.g., `build/`, `install/`, `log/`, venvs, images) from being copied into the Docker image. This keeps builds fast and clean.
+
+- **README.md**  
+  This guide.
+
+---
+
+### `scripts/` Directory
+
+- **build.sh**  
+  Builds the workspace locally with `colcon`.  
+  ```bash
+  ./scripts/build.sh
+  ```
+  
+- **run.sh** 
+  Runs the main benchmark node locally after building.
+   ```bash
+  ./scripts/run.sh --grid 64 --fill 0.20 --algo astar --moves 8 --no-show
+    ```
+- **run_check.sh**
+Quick smoke test — runs a short benchmark (--steps 10) to confirm the package executes correctly.
+
+- **run_random64.sh**
+Convenience wrapper — runs BFS and A* on a random 64×64 grid with a fixed seed, useful for comparing algorithms under the same conditions.
+
+- **run_maze32.sh**
+Convenience wrapper — runs BFS and A* on a 32×32 ASCII maze map.
+
+- **entrypoint.sh**
+Entry point for the Docker container. Automatically sources ROS 2 and the built workspace so you can run ros2 run ... directly inside the container.
+
+- **run_docker.sh**
+One-step helper: builds the Docker image and then runs the benchmark inside the container. Outputs are persisted to ./outputs/.
+   ```bash
+    ./scripts/run_docker.sh --steps 10 --render-every 2 --no-show
+   ```
+  
+
 
