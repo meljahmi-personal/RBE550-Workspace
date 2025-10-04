@@ -25,10 +25,19 @@ sudo apt install -y python3-pip python3-colcon-common-extensions
 ## Local Build and Run (without Docker)
 
 1. Clone the repository and move into the workspace:
+- using HTTPS:
+
    ```bash
    git clone https://github.com/meljahmi-personal/RBE550-Workspace.git
    cd RBE550-Workspace
    ```
+- using SSH (preferred if you have GitHub SSH keys set up):
+
+   ```bash
+    git clone git@github.com:meljahmi-personal/RBE550-Workspace.git
+    cd RBE550-Workspace
+   ```
+
 
 2. Build the workspace:
    ```bash

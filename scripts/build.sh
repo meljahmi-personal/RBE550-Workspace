@@ -1,30 +1,23 @@
 #!/usr/bin/env bash
-# Build RBE-550 workspace (merged layout + symlinks), clean env first.
-set -euo pipefail
-WS="$(cd "$(dirname "$0")/.." && pwd)"
+# Final stable local build for RBE550 Workspace
 
-# Optional clean: ./scripts/build.sh clean
-if [[ "${1:-}" == "clean" ]]; then
-  rm -rf "$WS/build" "$WS/install" "$WS/log"
-fi
+rm -rf build/ install/ log/
 
-# Ensure ament resource marker exists (harmless if already there)
-mkdir -p "$WS/src/rbe550_grid_bench/resource"
-echo -n "rbe550_grid_bench" > "$WS/src/rbe550_grid_bench/resource/rbe550_grid_bench"
+# no 'set -u' here on purpose
+set -e
 
-# Clean overlays to avoid weirdness
-unset AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_CURRENT_PREFIX ROS_PACKAGE_PATH PYTHONPATH
+# Make sure COLCON_TRACE exists (prevents "unbound variable")
+export COLCON_TRACE="${COLCON_TRACE:-}"
 
-# Source ROS only
-set +u
-source /opt/ros/humble/setup.bash
-set -u
+# Source ROS 2
+source /opt/ros/${ROS_DISTRO:-humble}/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash
 
-# Build this package (merged layout + symlinks)
-colcon build --symlink-install --packages-select rbe550_grid_bench
+# Build the workspace
+colcon build --merge-install
 
-# Quick sanity: show that the package is registered
-source "$WS/install/setup.bash"
-echo "[OK] Build finished."
-echo "[info] ros2 sees: $(ros2 pkg list | grep -i rbe550 || echo 'NOT FOUND')"
+# Source the overlay (safe)
+source install/setup.bash || true
+
+echo "[build.sh]  Build complete."
+
 
