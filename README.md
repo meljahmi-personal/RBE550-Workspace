@@ -157,5 +157,25 @@ One-step helper: builds the Docker image and then runs the benchmark inside the 
     ./scripts/run_docker.sh --steps 10 --render-every 2 --no-show
    ```
   
+---
+
+## Documentation and Reports
+
+Project documentation, including the proposal and the October 6 status report, is available in the companion repository:
+
+**RBE550 Project Proposal and Reports (SSH)**  
+`git@github.com:meljahmi-personal/RBE550-project-proposal.git`
+
+Specific document folder:
+```
+project_status_October_6/status/
+```
+
+This companion repository contains:
+- The initial project proposal  
+- The October 6, 2025 status report (PDF)  
+- Supporting diagrams and figures referenced in this workspace
+
+---
 
 
