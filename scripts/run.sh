@@ -19,6 +19,13 @@ fi
 # Source the overlay (safe)
 source install/setup.bash || true
 
-echo "[run.sh]  Running rbe550_grid_bench..."
-ros2 run rbe550_grid_bench bench "$@"
+# make sure outputs exists (keep this near the top if you added it)
+mkdir -p "$(dirname "$0")/../outputs"
+
+# timestamped log
+ts="$(date +%Y%m%d_%H%M%S)"
+echo "[run.sh]  Running rbe550_grid_bench... (logging to outputs/run_${ts}.log)"
+ros2 run rbe550_grid_bench bench "$@" | tee "outputs/run_${ts}.log"
+
+
 

@@ -7,20 +7,21 @@ set -euo pipefail
 
 IMAGE="rbe550-bench"
 
-# Always build to guarantee it's in sync with your code (simple & reliable)
+# Always rebuild to ensure image matches latest code
 docker build -t "${IMAGE}" .
 
-# Persist outputs to host
+# Ensure host outputs/ exists (needed for bind mount and host-side logging)
 mkdir -p outputs
 
-# If no args given, provide a safe default
+# Default arguments if none provided
 if [[ $# -eq 0 ]]; then
   set -- --steps 10 --render-every 2 --no-show
 fi
 
-# Run. Thanks to the ENTRYPOINT, we can call ros2 directly.
+# Run container. ENTRYPOINT handles ROS setup and execution.
 docker run --rm -it \
   -v "$(pwd)/outputs:/ws/outputs" \
   "${IMAGE}" \
-  ros2 run rbe550_grid_bench bench "$@"
+  "$@"
+
 
