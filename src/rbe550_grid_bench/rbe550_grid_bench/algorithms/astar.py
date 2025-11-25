@@ -1,101 +1,133 @@
-# rbe550_grid_bench/algorithms/astar.py
+#!/usr/bin/env python3
+"""
+A* search on a 2D grid.
 
-import math, heapq
+Interface:
+    from .astar import plan
+    path, stats = plan(grid, start, goal, neighbor_fn)
+"""
+
+from typing import Callable, Tuple, List, Dict, Optional
+import heapq
+import math
+
+import numpy as np
+
 from .base import BasePlanner, PlanResult
-from ..neighbors import neighbors4, neighbors8  # shared neighbor generators
+
+Coord = Tuple[int, int]
+NeighborFn = Callable[[Coord], List[Tuple[int, int, float]]]
 
 
-def manhattan(a, b):
+def manhattan(a: Coord, b: Coord) -> float:
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
-def euclidean(a, b):
-    return math.hypot(a[0] - b[0], a[1] - b[1])
-
-
 class AStarPlanner(BasePlanner):
-    name = "astar"
+    """Standard A* using g(n) + h(n)."""
 
-    def __init__(self, heuristic: str = "euclidean"):
-        self.hfun = euclidean if heuristic == "euclidean" else manhattan
+    def __init__(self, heuristic: str = "manhattan") -> None:
+        super().__init__(name="A*")
+        self.heuristic = heuristic
 
-    def plan(self, obst, start, goal, neighbor_fn):
-        """
-        obst: 2D numpy array (1=obstacle, 0=free) indexed as obst[row, col] == obst[y, x]
-        start, goal: tuples (x, y)
-        neighbor_fn: callable (x, y) -> yields (nx, ny, step_cost)
-        """
-        h, w = obst.shape
-        sx, sy = start
-        gx, gy = goal
+    def _h(self, state: Coord, goal: Coord) -> float:
+        if self.heuristic == "manhattan":
+            return manhattan(state, goal)
+        dr = state[0] - goal[0]
+        dc = state[1] - goal[1]
+        return math.hypot(dr, dc)
 
-        # If start/goal are blocked, early out
-        if obst[sy, sx] or obst[gy, gx]:
+    def plan(
+        self,
+        grid: np.ndarray,
+        start: Coord,
+        goal: Coord,
+        neighbor_fn: NeighborFn,
+    ) -> PlanResult:
+        h, w = grid.shape
+        sr, sc = start
+        gr, gc = goal
+
+        if not (0 <= sr < h and 0 <= sc < w):
+            return PlanResult(False, [], 0, 0, 0)
+        if not (0 <= gr < h and 0 <= gc < w):
+            return PlanResult(False, [], 0, 0, 0)
+        if grid[sr, sc] != 0 or grid[gr, gc] != 0:
             return PlanResult(False, [], 0, 0, 0)
 
-        g = {(sx, sy): 0.0}
-        parent = {(sx, sy): None}
-        openq = []
-        heapq.heappush(openq, (self.hfun(start, goal), (sx, sy)))
-        closed = set()
-        peak_open = 1
+        if start == goal:
+            return PlanResult(True, [start], 0, 1, 1)
 
-        while openq:
-            peak_open = max(peak_open, len(openq))
-            _, (x, y) = heapq.heappop(openq)
+        open_heap: List[Tuple[float, Coord]] = []
+        heapq.heappush(open_heap, (self._h(start, goal), start))
 
-            if (x, y) == (gx, gy):
-                # reconstruct path
-                path = []
-                cur = (x, y)
-                while cur is not None:
-                    path.append(cur)
-                    cur = parent[cur]
-                path.reverse()
-                return PlanResult(True, path, len(closed), peak_open, len(closed))
+        g_cost: Dict[Coord, float] = {start: 0.0}
+        came_from: Dict[Coord, Optional[Coord]] = {start: None}
+        closed: set[Coord] = set()
 
-            if (x, y) in closed:
+        nodes_expanded = 0
+        peak_open = len(open_heap)
+
+        while open_heap:
+            f_cur, current = heapq.heappop(open_heap)
+            if current in closed:
                 continue
-            closed.add((x, y))
+            closed.add(current)
+            nodes_expanded += 1
 
-            for nx, ny, cost in neighbor_fn(x, y):
-                if 0 <= nx < w and 0 <= ny < h and not obst[ny, nx]:
-                    ng = g[(x, y)] + cost
-                    if ng < g.get((nx, ny), float("inf")):
-                        g[(nx, ny)] = ng
-                        parent[(nx, ny)] = (x, y)
-                        f = ng + self.hfun((nx, ny), (gx, gy))
-                        heapq.heappush(openq, (f, (nx, ny)))
+            if current == goal:
+                break
 
-        return PlanResult(False, [], len(closed), peak_open, len(closed))
+            cur_g = g_cost[current]
+
+            for nr, nc, step_cost in neighbor_fn(current):
+                if not (0 <= nr < h and 0 <= nc < w):
+                    continue
+                if grid[nr, nc] != 0:
+                    continue
+
+                nxt = (nr, nc)
+                tentative_g = cur_g + float(step_cost)
+
+                old_g = g_cost.get(nxt, float("inf"))
+                if tentative_g < old_g:
+                    g_cost[nxt] = tentative_g
+                    came_from[nxt] = current
+                    f_nxt = tentative_g + self._h(nxt, goal)
+                    heapq.heappush(open_heap, (f_nxt, nxt))
+
+            peak_open = max(peak_open, len(open_heap))
+
+        if goal not in came_from:
+            return PlanResult(False, [], nodes_expanded, peak_open, len(closed))
+
+        # Reconstruct path
+        path: List[Coord] = []
+        cur = goal
+        while cur is not None:
+            path.append(cur)
+            cur = came_from[cur]
+        path.reverse()
+
+        return PlanResult(True, path, nodes_expanded, peak_open, len(closed))
 
 
-def plan(grid_rc, start_rc, goal_rc, neighbors_fn=neighbors4, heuristic: str = "euclidean"):
-    """
-    Facade for the bench runner:
-      - Accepts grid indexed by (row, col)
-      - Accepts start/goal as (row, col)
-      - Converts to (x, y) for internal planner (x=col, y=row)
-      - Uses neighbors_fn (default: 4-connected)
-      - Returns (path_rc, stats)
-    """
-    astar = AStarPlanner(heuristic=heuristic)
+def plan(
+    grid: np.ndarray,
+    start: Coord,
+    goal: Coord,
+    neighbor_fn: NeighborFn,
+):
+    planner = AStarPlanner()
+    res = planner.plan(grid, start, goal, neighbor_fn)
 
-    # (r,c) -> (x,y)
-    sx, sy = start_rc[1], start_rc[0]
-    gx, gy = goal_rc[1], goal_rc[0]
-
-    res = astar.plan(grid_rc, (sx, sy), (gx, gy), neighbors_fn)
-
-    # path back to (r,c)
-    path_xy = getattr(res, "path", []) or []
-    path_rc = [(y, x) for (x, y) in path_xy]
-
+    path = res.path
     stats = {
-        "nodes_expanded": getattr(res, "nodes_expanded", getattr(res, "expanded", 0)),
-        "peak_open": getattr(res, "peak_open", None),
-        "path_len": len(path_rc),
-        "success": getattr(res, "success", bool(path_rc)),
+        "success": res.success,
+        "path_len": len(path),
+        "nodes_expanded": res.nodes_expanded,
+        "peak_open": res.peak_open,
+        "peak_closed": res.peak_closed,
     }
-    return path_rc, stats
+    return path, stats
 

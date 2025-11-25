@@ -47,9 +47,9 @@ sudo apt install -y python3-pip python3-colcon-common-extensions
    ```
 
 4. (Optional) Save results to the host:
-   ```bash
-   mkdir -p outputs
-   ./scripts/run.sh --steps 10 --render-every 2 --no-show | tee "outputs/run_$(date +%Y%m%d_%H%M%S).log"
+   ```bash   
+    mkdir -p outputs
+    ./scripts/run.sh --steps 10 --render-every 2 | tee "outputs/run_$(date +%Y%m%d_%H%M%S).log"
    ```
 
 5. For additional examples:
@@ -66,7 +66,8 @@ The project includes a Dockerfile and helper script to guarantee consistent resu
 ### One-step build and run
 From the workspace root:
 ```bash
-./scripts/run_docker.sh --steps 10 --render-every 2 --no-show
+./scripts/run_docker.sh --steps 10 --render-every 2
+
 ```
 
 This script will:
@@ -78,17 +79,19 @@ This script will:
 ### Examples
 - **Random 64×64 grid:**
   ```bash
-  ./scripts/run_docker.sh --grid 64 --fill 0.20 --seed 42 --algo astar --moves 8 --no-show
+  ./scripts/run.sh --grid 64 --fill 0.20 --seed 42 --algo astar --moves 8
+
   ```
 - **BFS vs A*** on a maze:
   ```bash
-  ./scripts/run_docker.sh --map maps/maze_32.txt --algo bfs   --moves 4 --no-show
-  ./scripts/run_docker.sh --map maps/maze_32.txt --algo astar --moves 8 --no-show
+  ./scripts/run_docker.sh --map maps/maze_32.txt --algo bfs   --moves 4
+  ./scripts/run_docker.sh --map maps/maze_32.txt --algo astar --moves 8
   ```
 - **Save container output to host:**
   ```bash
   mkdir -p outputs
-  ./scripts/run_docker.sh --steps 10 --render-every 2 --no-show     | tee "outputs/run_$(date +%Y%m%d_%H%M%S).log"
+  ./scripts/run_docker.sh --steps 10 --render-every 2 | tee "outputs/run_$(date +%Y%m%d_%H%M%S).log"
+  
   ```
 
 Outputs (images, logs, GIFs) will appear in:

@@ -1,85 +1,121 @@
-# rbe550_grid_bench/algorithms/bfs.py
+#!/usr/bin/env python3
+"""
+Breadth-First Search (BFS) on a 2D grid.
+
+Interface:
+    from .bfs import plan
+    path, stats = plan(grid, start, goal, neighbor_fn)
+
+`neighbor_fn` should take a state (r, c) and return an iterable of
+(neighbor_r, neighbor_c, step_cost) triples.
+"""
 
 from collections import deque
+from typing import Callable, Tuple, List, Dict
+
+import numpy as np
+
 from .base import BasePlanner, PlanResult
-from ..neighbors import neighbors4, neighbors8  # shared neighbor generators
+
+
+Coord = Tuple[int, int]
+NeighborFn = Callable[[Coord], List[Tuple[int, int, float]]]
 
 
 class BFSPlanner(BasePlanner):
-    name = "bfs"
+    """Unweighted BFS. Ignores the step_cost from neighbor_fn."""
 
-    def plan(self, obst, start, goal, neighbor_fn):
-        """
-        obst: 2D numpy array (1=obstacle, 0=free) indexed as obst[row, col] == obst[y, x]
-        start, goal: tuples (x, y)
-        neighbor_fn: callable (x, y) -> yields (nx, ny, step_cost)  # cost ignored by BFS
-        """
-        h, w = obst.shape
-        sx, sy = start
-        gx, gy = goal
+    def __init__(self) -> None:
+        super().__init__(name="BFS")
 
-        # If start/goal are blocked, early out
-        if obst[sy, sx] or obst[gy, gx]:
+    def plan(
+        self,
+        grid: np.ndarray,
+        start: Coord,
+        goal: Coord,
+        neighbor_fn: NeighborFn,
+    ) -> PlanResult:
+        h, w = grid.shape
+        sr, sc = start
+        gr, gc = goal
+
+        # Start or goal out of bounds / blocked → immediate failure
+        if not (0 <= sr < h and 0 <= sc < w):
+            return PlanResult(False, [], 0, 0, 0)
+        if not (0 <= gr < h and 0 <= gc < w):
+            return PlanResult(False, [], 0, 0, 0)
+        if grid[sr, sc] != 0 or grid[gr, gc] != 0:
             return PlanResult(False, [], 0, 0, 0)
 
-        parent = {(sx, sy): None}
-        q = deque([(sx, sy)])
-        closed = set()
-        peak_open = 1
+        if start == goal:
+            return PlanResult(True, [start], 0, 1, 1)
+
+        q = deque([start])
+        came_from: Dict[Coord, Coord | None] = {start: None}
+        closed: set[Coord] = set([start])
+
+        nodes_expanded = 0
+        peak_open = len(q)
 
         while q:
+            current = q.popleft()
+            nodes_expanded += 1
+
+            if current == goal:
+                break
+
+            for nr, nc, _step_cost in neighbor_fn(current):
+                if not (0 <= nr < h and 0 <= nc < w):
+                    continue
+                if grid[nr, nc] != 0:
+                    continue
+                nxt = (nr, nc)
+                if nxt in closed:
+                    continue
+
+                closed.add(nxt)
+                came_from[nxt] = current
+                q.append(nxt)
+
             peak_open = max(peak_open, len(q))
-            x, y = q.popleft()
 
-            if (x, y) == (gx, gy):
-                # reconstruct path
-                path = []
-                cur = (x, y)
-                while cur is not None:
-                    path.append(cur)
-                    cur = parent[cur]
-                path.reverse()
-                return PlanResult(True, path, len(closed), peak_open, len(closed))
+        if goal not in came_from:
+            return PlanResult(False, [], nodes_expanded, peak_open, len(closed))
 
-            if (x, y) in closed:
-                continue
-            closed.add((x, y))
+        # Reconstruct path
+        path: List[Coord] = []
+        cur = goal
+        while cur is not None:
+            path.append(cur)
+            cur = came_from[cur]
+        path.reverse()
 
-            for nx, ny, _ in neighbor_fn(x, y):  # BFS ignores step cost
-                if 0 <= nx < w and 0 <= ny < h and not obst[ny, nx]:
-                    if (nx, ny) not in parent:
-                        parent[(nx, ny)] = (x, y)
-                        q.append((nx, ny))
-
-        return PlanResult(False, [], len(closed), peak_open, len(closed))
+        return PlanResult(True, path, nodes_expanded, peak_open, len(closed))
 
 
-def plan(grid_rc, start_rc, goal_rc, neighbors_fn=neighbors4):
+def plan(
+    grid: np.ndarray,
+    start: Coord,
+    goal: Coord,
+    neighbor_fn: NeighborFn,
+):
     """
-    Facade for the bench runner:
-      - Accepts grid indexed by (row, col)
-      - Accepts start/goal as (row, col)
-      - Converts to (x, y) for internal planner (x=col, y=row)
-      - Uses neighbors_fn (default: 4-connected)
-      - Returns (path_rc, stats)
+    Module-level convenience wrapper used by bench_runner.
+
+    Returns:
+        path: list[(r, c)]
+        stats: dict with path_len, nodes_expanded, peak_open, peak_closed
     """
-    bfs = BFSPlanner()
+    planner = BFSPlanner()
+    res = planner.plan(grid, start, goal, neighbor_fn)
 
-    # (r,c) -> (x,y)
-    sx, sy = start_rc[1], start_rc[0]
-    gx, gy = goal_rc[1], goal_rc[0]
-
-    res = bfs.plan(grid_rc, (sx, sy), (gx, gy), neighbors_fn)
-
-    # path back to (r,c)
-    path_xy = getattr(res, "path", []) or []
-    path_rc = [(y, x) for (x, y) in path_xy]
-
+    path = res.path
     stats = {
-        "nodes_expanded": getattr(res, "nodes_expanded", getattr(res, "expanded", 0)),
-        "peak_open": getattr(res, "peak_open", None),
-        "path_len": len(path_rc),
-        "success": getattr(res, "success", bool(path_rc)),
+        "success": res.success,
+        "path_len": len(path),
+        "nodes_expanded": res.nodes_expanded,
+        "peak_open": res.peak_open,
+        "peak_closed": res.peak_closed,
     }
-    return path_rc, stats
+    return path, stats
 

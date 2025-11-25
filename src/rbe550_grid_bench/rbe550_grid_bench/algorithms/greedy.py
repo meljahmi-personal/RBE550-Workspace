@@ -1,28 +1,43 @@
 #!/usr/bin/env python3
 """
-Dijkstra's algorithm on a 2D grid.
+Greedy Best-First Search on a 2D grid.
 
 Interface:
-    from .dijkstra import plan
+    from .greedy import plan
     path, stats = plan(grid, start, goal, neighbor_fn)
 """
 
 from typing import Callable, Tuple, List, Dict, Optional
 import heapq
+import math
 
 import numpy as np
 
 from .base import BasePlanner, PlanResult
 
+
 Coord = Tuple[int, int]
 NeighborFn = Callable[[Coord], List[Tuple[int, int, float]]]
 
 
-class DijkstraPlanner(BasePlanner):
-    """Classic Dijkstra: uniform-cost search using neighbor step_cost."""
+def manhattan(a: Coord, b: Coord) -> float:
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-    def __init__(self) -> None:
-        super().__init__(name="Dijkstra")
+
+class GreedyBestFirstPlanner(BasePlanner):
+    """Greedy Best-First Search guided only by heuristic h(n)."""
+
+    def __init__(self, heuristic: str = "manhattan") -> None:
+        super().__init__(name="Greedy")
+        self.heuristic = heuristic
+
+    def _h(self, state: Coord, goal: Coord) -> float:
+        if self.heuristic == "manhattan":
+            return manhattan(state, goal)
+        # Fallback: Euclidean
+        dr = state[0] - goal[0]
+        dc = state[1] - goal[1]
+        return math.hypot(dr, dc)
 
     def plan(
         self,
@@ -45,9 +60,9 @@ class DijkstraPlanner(BasePlanner):
         if start == goal:
             return PlanResult(True, [start], 0, 1, 1)
 
-        # Priority queue of (g_cost, (r, c))
-        open_heap: List[Tuple[float, Coord]] = [(0.0, start)]
-        g_cost: Dict[Coord, float] = {start: 0.0}
+        open_heap: List[Tuple[float, Coord]] = []
+        heapq.heappush(open_heap, (self._h(start, goal), start))
+
         came_from: Dict[Coord, Optional[Coord]] = {start: None}
         closed: set[Coord] = set()
 
@@ -55,7 +70,7 @@ class DijkstraPlanner(BasePlanner):
         peak_open = len(open_heap)
 
         while open_heap:
-            cur_cost, current = heapq.heappop(open_heap)
+            _, current = heapq.heappop(open_heap)
             if current in closed:
                 continue
             closed.add(current)
@@ -64,20 +79,19 @@ class DijkstraPlanner(BasePlanner):
             if current == goal:
                 break
 
-            for nr, nc, step_cost in neighbor_fn(current):
+            for nr, nc, _step_cost in neighbor_fn(current):
                 if not (0 <= nr < h and 0 <= nc < w):
                     continue
                 if grid[nr, nc] != 0:
                     continue
 
                 nxt = (nr, nc)
-                new_cost = cur_cost + float(step_cost)
+                if nxt in closed:
+                    continue
 
-                old_cost = g_cost.get(nxt, float("inf"))
-                if new_cost < old_cost:
-                    g_cost[nxt] = new_cost
+                if nxt not in came_from:
                     came_from[nxt] = current
-                    heapq.heappush(open_heap, (new_cost, nxt))
+                    heapq.heappush(open_heap, (self._h(nxt, goal), nxt))
 
             peak_open = max(peak_open, len(open_heap))
 
@@ -101,7 +115,7 @@ def plan(
     goal: Coord,
     neighbor_fn: NeighborFn,
 ):
-    planner = DijkstraPlanner()
+    planner = GreedyBestFirstPlanner()
     res = planner.plan(grid, start, goal, neighbor_fn)
 
     path = res.path
