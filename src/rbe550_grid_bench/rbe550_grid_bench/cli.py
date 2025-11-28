@@ -49,12 +49,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Planner selection
     parser.add_argument(
-        "--algo",
-        type=str,
-        default="bfs",
-        choices=["bfs", "dijkstra", "greedy", "astar"],
-        help="Planner to use: bfs, dijkstra, greedy, or astar (default: bfs)",
+    "--algo",
+    type=str,
+    default="bfs",
+    choices=["bfs", "dijkstra", "greedy", "astar", "weighted_astar", "wastar"],
+    help="Planning algorithm",
     )
+
 
     # Randomness / seeds
     parser.add_argument(
@@ -107,6 +108,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Explicit start/goal as 'r1,c1:r2,c2' (optional)",
     )
+    
+    parser.add_argument(
+    "--weight",
+    type=float,
+    default=1.0,
+    help="Heuristic weight for weighted A*. Use 1.0 for standard A*; >1.0 for greedier search.",
+    )
+
 
     return parser
 
