@@ -13,9 +13,11 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         # Install package.xml
         ('share/' + package_name, ['package.xml']),
-        # Install launch files - THIS IS THE CRITICAL PART
+        # Install launch files
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
-    ],
+        # Install config files
+        (os.path.join('share', package_name, 'config'), glob('config/*.rviz')),
+    ],    
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Mohamed Eljahmi',
@@ -25,6 +27,9 @@ setup(
     entry_points={
         'console_scripts': [
             'bench = rbe550_grid_bench.cli:main',
+            'planner_node = rbe550_grid_bench.planner_node:main',  
         ],
     },
 )
+
+

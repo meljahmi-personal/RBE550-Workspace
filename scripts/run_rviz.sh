@@ -13,3 +13,4 @@ source "${WS_DIR}/install/setup.bash"
 echo "[run_rviz] Launching bench.launch.py ..."
 ros2 launch rbe550_grid_bench bench.launch.py use_rviz:=true "$@"
 
+

@@ -10,43 +10,73 @@ import numpy as np
 from .grid_utils import make_random_grid, load_grid_from_ascii, random_free_cell, parse_rc_pair
 from .neighbors import neighbors4, neighbors8
 from .algorithms import bfs, dijkstra, greedy, astar, weighted_astar
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+
 
 def make_neighbor_fn(grid, moves: int):
+    """Create a neighbor function that returns valid (r, c, cost) tuples"""
+    rows, cols = grid.shape
+    
+    def is_valid(r, c):
+        """Check if (r, c) is within grid bounds and not an obstacle"""
+        return (0 <= r < rows and 0 <= c < cols and grid[r, c] == 0)
+    
     if moves == 4:
-        return lambda rc: neighbors4(grid, rc[0], rc[1])
+        def neighbor_fn_4(rc):
+            r, c = rc
+            for nr, nc, cost in neighbors4(r, c):
+                if is_valid(nr, nc):
+                    yield nr, nc, cost
+        return neighbor_fn_4
+        
     elif moves == 8:
-        return lambda rc: neighbors8(grid, rc[0], rc[1])
+        def neighbor_fn_8(rc):
+            r, c = rc
+            for nr, nc, cost in neighbors8(r, c):
+                if is_valid(nr, nc):
+                    yield nr, nc, cost
+        return neighbor_fn_8
     else:
         raise ValueError(f"moves must be 4 or 8, got {moves}")
+
 
 def to_occupancy_grid(grid: np.ndarray, frame_id="map", resolution=1.0):
     h, w = grid.shape
     msg = OccupancyGrid()
-    msg.header = Header(frame_id=frame_id)
+    msg.header.frame_id = frame_id
+    msg.header.stamp = rclpy.clock.Clock().now().to_msg()
+    
     msg.info = MapMetaData()
     msg.info.resolution = float(resolution)
     msg.info.width = int(w)
     msg.info.height = int(h)
-    # origin at (0,0), z=0; adjust if you want map centered
-    msg.info.origin.position.x = 0.0
-    msg.info.origin.position.y = 0.0
+    
+    # Center the grid in RViz view - THIS IS THE KEY FIX
+    msg.info.origin.position.x = -w * resolution / 2.0
+    msg.info.origin.position.y = -h * resolution / 2.0
+    msg.info.origin.position.z = 0.0
     msg.info.origin.orientation.w = 1.0
-    # ROS OccupancyGrid is row-major from map origin (bottom-left).
-    # Our grid is [row, col] with (0,0) at top-left. Flip vertically so “up” in RViz matches your arrays.
+    
+    # ROS OccupancyGrid is row-major from map origin (bottom-left)
+    # Our grid is [row, col] with (0,0) at top-left. Flip vertically
     flipped = np.flipud(grid.astype(np.int8))
-    # 0 free -> 0, 1 obstacle -> 100
     data = (flipped * 100).astype(np.int8)
     msg.data = data.flatten().tolist()
+    
     return msg
+
 
 def path_to_msg(path_rc, frame_id="map", resolution=1.0):
     p = Path()
-    p.header = Header(frame_id=frame_id)
+    p.header.frame_id = frame_id
+    p.header.stamp = rclpy.clock.Clock().now().to_msg()
     for (r, c) in path_rc:
         ps = PoseStamped()
-        ps.header = Header(frame_id=frame_id)
-        ps.pose.position.x = float(c) * resolution + 0.5 * resolution
-        ps.pose.position.y = float((r)) * resolution + 0.5 * resolution
+        ps.header.frame_id = frame_id
+        ps.header.stamp = p.header.stamp
+        # Center coordinates around origin
+        ps.pose.position.x = float(c) * resolution + 0.5 * resolution - 32.0
+        ps.pose.position.y = float(r) * resolution + 0.5 * resolution - 32.0
         ps.pose.orientation.w = 1.0
         p.poses.append(ps)
     return p
@@ -54,17 +84,27 @@ def path_to_msg(path_rc, frame_id="map", resolution=1.0):
 def point_marker(x, y, mid, rgba, scale=0.35, frame_id="map"):
     m = Marker()
     m.header.frame_id = frame_id
+    m.header.stamp = rclpy.clock.Clock().now().to_msg()
     m.id = mid
     m.type = Marker.SPHERE
     m.action = Marker.ADD
+    # Coordinates should already be centered when passed in
     m.pose.position.x = x
     m.pose.position.y = y
     m.pose.orientation.w = 1.0
-    m.scale.x = m.scale.y = m.scale.z = scale
-    m.color = ColorRGBA(*rgba)
-    m.lifetime.sec = 0  # forever
+    m.scale.x = scale
+    m.scale.y = scale
+    m.scale.z = scale
+    
+    m.color.r = rgba[0]
+    m.color.g = rgba[1]  
+    m.color.b = rgba[2]
+    m.color.a = rgba[3]
+    
+    m.lifetime.sec = 0
     return m
-
+ 
+ 
 class PlannerVizNode(Node):
     def __init__(self):
         super().__init__("planner_viz")
@@ -92,6 +132,7 @@ class PlannerVizNode(Node):
         res    = float(self.get_parameter("resolution").value)
         frame  = self.get_parameter("frame_id").get_parameter_value().string_value
 
+
         # ---- build grid / start / goal ----
         if map_p:
             grid = load_grid_from_ascii(map_p)
@@ -99,6 +140,27 @@ class PlannerVizNode(Node):
         else:
             grid = make_random_grid(size=size, fill=fill, seed=seed)
             src = f"grid={size}, fill={fill}, seed={seed}"
+
+        # === ADD DEBUG CODE RIGHT HERE ===
+        self.get_logger().info(f"=== GRID DEBUG INFO ===")
+        self.get_logger().info(f"Grid type: {type(grid)}")
+        self.get_logger().info(f"Grid dtype: {grid.dtype}")
+        self.get_logger().info(f"Grid shape: {grid.shape}")
+        self.get_logger().info(f"Min value: {np.min(grid)}")
+        self.get_logger().info(f"Max value: {np.max(grid)}")
+        self.get_logger().info(f"Sum of obstacles: {np.sum(grid)}")
+        self.get_logger().info(f"Unique values: {np.unique(grid)}")
+
+        # Check if the grid actually has obstacles
+        if np.sum(grid) == 0:
+            self.get_logger().warning("WARNING: Grid has NO obstacles!")
+        else:
+            self.get_logger().info(f"Grid has {np.sum(grid)} obstacles")
+
+        # Print a small sample
+        self.get_logger().info(f"Top-left 5x5 sample:\n{grid[:5, :5]}")
+        self.get_logger().info(f"=== END GRID DEBUG ===")
+        # === END DEBUG CODE ===
 
         rng = np.random.default_rng(seed)
         if sg:
@@ -132,48 +194,68 @@ class PlannerVizNode(Node):
         # ---- run and prepare messages ----
         res_plan = planner.plan(grid, start, goal, neighbor_fn=neighbor_fn)
         path = res_plan.path or []
-        og   = to_occupancy_grid(grid, frame_id=frame, resolution=res)
-        path_msg = path_to_msg(path, frame_id=frame, resolution=res)
+        
+        # Store messages as instance variables
+        self.og = to_occupancy_grid(grid, frame_id=frame, resolution=res)
+        self.path_msg = path_to_msg(path, frame_id=frame, resolution=res)
 
         # start/goal markers
-        sx = start[1] * res + 0.5 * res
-        sy = start[0] * res + 0.5 * res
-        gx = goal[1]  * res + 0.5 * res
-        gy = goal[0]  * res + 0.5 * res
-        markers = MarkerArray()
-        markers.markers.append(point_marker(sx, sy, 1, (0.0, 1.0, 0.0, 1.0), frame_id=frame))  # start: green
-        markers.markers.append(point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=frame))  # goal: red
+        sx = start[1] * res + 0.5 * res - 32.0  # Centered
+        sy = start[0] * res + 0.5 * res - 32.0  # Centered
+        gx = goal[1]  * res + 0.5 * res - 32.0  # Centered
+        gy = goal[0]  * res + 0.5 * res - 32.0  # Centered
+        self.markers = MarkerArray()
+        self.markers.markers.append(point_marker(sx, sy, 1, (0.0, 1.0, 0.0, 1.0), frame_id=frame))  # start: green
+        self.markers.markers.append(point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=frame))  # goal: red
 
-        # ---- publishers (latching-like QoS) ----
-        from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
-        latched = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1,
-        )
-        self.grid_pub  = self.create_publisher(OccupancyGrid, "grid", latched)
-        self.path_pub  = self.create_publisher(Path,          "path", latched)
-        self.mk_pub    = self.create_publisher(MarkerArray,   "markers", latched)
+        # ---- publishers (use default QoS) ----
+        self.grid_pub  = self.create_publisher(OccupancyGrid, "grid", 10)  # Default QoS
+        self.path_pub  = self.create_publisher(Path, "path", 10)           # Default QoS
+        self.mk_pub    = self.create_publisher(MarkerArray, "markers", 10) # Default QoS
 
-        # publish once (RViz will latched-subscribe and render)
-        self.grid_pub.publish(og)
-        self.path_pub.publish(path_msg)
-        self.mk_pub.publish(markers)
+        # Publish immediately
+        self.publish_data()
+        
+        # Also publish periodically to ensure RViz gets it
+        self.timer = self.create_timer(1.0, self.publish_data)  # Publish every second
 
         self.get_logger().info(f"[viz] published grid/path/markers  path_len={len(path)}  nodes={res_plan.nodes_expanded}")
 
-        # exit after a short delay so RViz has time to subscribe
-        self.create_timer(1.0, self._shutdown_once)
+    def publish_data(self):
+        """Publish the visualization data with current timestamp"""
+        current_time = self.get_clock().now().to_msg()
+        
+        # Update timestamps
+        self.og.header.stamp = current_time
+        self.path_msg.header.stamp = current_time
+        for marker in self.markers.markers:
+            marker.header.stamp = current_time
+        
+        # Publish
+        self.grid_pub.publish(self.og)
+        self.path_pub.publish(self.path_msg)
+        self.mk_pub.publish(self.markers)
+        
+        self.get_logger().info("Published visualization data")
 
-    def _shutdown_once(self):
-        self.get_logger().info("[viz] done; shutting down")
-        rclpy.shutdown()
 
 def main():
     rclpy.init()
     node = PlannerVizNode()
-    rclpy.spin(node)
+    
+    try:
+        # Keep the node alive for a while to ensure RViz receives messages
+        rclpy.spin_once(node, timeout_sec=2.0)  # Wait a bit for publications
+        node.get_logger().info("Published visualization data, keeping node alive...")
+        
+        # Keep spinning until manually stopped
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
 
 if __name__ == "__main__":
     main()
