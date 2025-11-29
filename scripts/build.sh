@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
-# Final stable local build for RBE550 Workspace
+# Main build script - NO HARDCODED PATHS
 
-rm -rf build/ install/ log/
-
-# no 'set -u' here on purpose
 set -e
 
-# Make sure COLCON_TRACE exists (prevents "unbound variable")
-export COLCON_TRACE="${COLCON_TRACE:-}"
+echo "[build.sh] Cleaning workspace..."
+rm -rf build/ install/ log/
 
-# Source ROS 2
-source /opt/ros/${ROS_DISTRO:-humble}/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash
+echo "[build.sh] Sourcing ROS 2..."
+source /opt/ros/${ROS_DISTRO:-humble}/setup.bash
 
-# Build the workspace
-colcon build --merge-install
+echo "[build.sh] Building workspace..."
+colcon build --symlink-install
 
-# Source the overlay (safe)
-source install/setup.bash || true
-
-echo "[build.sh]  Build complete."
-
-
+echo "[build.sh] Build complete."

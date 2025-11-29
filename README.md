@@ -87,11 +87,23 @@ This script will:
   ./scripts/run_docker.sh --map maps/maze_32.txt --algo bfs   --moves 4
   ./scripts/run_docker.sh --map maps/maze_32.txt --algo astar --moves 8
   ```
-- **Save container output to host:**
+**Save container output to host:**
   ```bash
   mkdir -p outputs
   ./scripts/run_docker.sh --steps 10 --render-every 2 | tee "outputs/run_$(date +%Y%m%d_%H%M%S).log"
   
+  ```
+- **Weighted A*:**
+  ```bash
+  # Standard A* (weight = 1.0)
+    ./scripts/run.sh --algo weighted_astar --moves 4 --weight 1.0
+
+    # Faster but less optimal
+    ./scripts/run.sh --algo weighted_astar --moves 4 --weight 1.5
+
+    # 8-connected Weighted A* (wA*)
+    ./scripts/run.sh --algo wastar --moves 8 --weight 2.0
+
   ```
 
 Outputs (images, logs, GIFs) will appear in:

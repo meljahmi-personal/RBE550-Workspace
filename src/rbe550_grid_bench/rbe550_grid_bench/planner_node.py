@@ -1,133 +1,180 @@
-import rclpy, time, random
+# rbe550_grid_bench/planner_node.py
+import rclpy
 from rclpy.node import Node
-from nav_msgs.msg import OccupancyGrid, Path
 from geometry_msgs.msg import PoseStamped
-from visualization_msgs.msg import MarkerArray
-from .grid_utils import grid_from_occupancy, world_to_grid, grid_to_world, path_length, count_turns
+from nav_msgs.msg import Path, OccupancyGrid, MapMetaData
+from visualization_msgs.msg import Marker, MarkerArray
+from std_msgs.msg import Header, ColorRGBA
+
+import numpy as np
+from .grid_utils import make_random_grid, load_grid_from_ascii, random_free_cell, parse_rc_pair
 from .neighbors import neighbors4, neighbors8
-from .rviz_helpers import path_marker, expansions_marker
-from .metrics import Metrics, MetricLogger
-from .algorithms.bfs import BFSPlanner
-from .algorithms.astar import AStarPlanner
-# from .algorithms.dijkstra import DijkstraPlanner
-# from .algorithms.theta_star import ThetaStarPlanner
-# from .algorithms.jps import JPSPlanner
+from .algorithms import bfs, dijkstra, greedy, astar, weighted_astar
 
-class PlannerNode(Node):
+def make_neighbor_fn(grid, moves: int):
+    if moves == 4:
+        return lambda rc: neighbors4(grid, rc[0], rc[1])
+    elif moves == 8:
+        return lambda rc: neighbors8(grid, rc[0], rc[1])
+    else:
+        raise ValueError(f"moves must be 4 or 8, got {moves}")
+
+def to_occupancy_grid(grid: np.ndarray, frame_id="map", resolution=1.0):
+    h, w = grid.shape
+    msg = OccupancyGrid()
+    msg.header = Header(frame_id=frame_id)
+    msg.info = MapMetaData()
+    msg.info.resolution = float(resolution)
+    msg.info.width = int(w)
+    msg.info.height = int(h)
+    # origin at (0,0), z=0; adjust if you want map centered
+    msg.info.origin.position.x = 0.0
+    msg.info.origin.position.y = 0.0
+    msg.info.origin.orientation.w = 1.0
+    # ROS OccupancyGrid is row-major from map origin (bottom-left).
+    # Our grid is [row, col] with (0,0) at top-left. Flip vertically so “up” in RViz matches your arrays.
+    flipped = np.flipud(grid.astype(np.int8))
+    # 0 free -> 0, 1 obstacle -> 100
+    data = (flipped * 100).astype(np.int8)
+    msg.data = data.flatten().tolist()
+    return msg
+
+def path_to_msg(path_rc, frame_id="map", resolution=1.0):
+    p = Path()
+    p.header = Header(frame_id=frame_id)
+    for (r, c) in path_rc:
+        ps = PoseStamped()
+        ps.header = Header(frame_id=frame_id)
+        ps.pose.position.x = float(c) * resolution + 0.5 * resolution
+        ps.pose.position.y = float((r)) * resolution + 0.5 * resolution
+        ps.pose.orientation.w = 1.0
+        p.poses.append(ps)
+    return p
+
+def point_marker(x, y, mid, rgba, scale=0.35, frame_id="map"):
+    m = Marker()
+    m.header.frame_id = frame_id
+    m.id = mid
+    m.type = Marker.SPHERE
+    m.action = Marker.ADD
+    m.pose.position.x = x
+    m.pose.position.y = y
+    m.pose.orientation.w = 1.0
+    m.scale.x = m.scale.y = m.scale.z = scale
+    m.color = ColorRGBA(*rgba)
+    m.lifetime.sec = 0  # forever
+    return m
+
+class PlannerVizNode(Node):
     def __init__(self):
-        super().__init__("planner_node")
-        self.declare_parameter("planner", "astar")
-        self.declare_parameter("connectivity", 8)     # 4 or 8
-        self.declare_parameter("heuristic", "euclidean")
-        self.declare_parameter("log_csv", True)
-        self.declare_parameter("seed", 123)
+        super().__init__("planner_viz")
 
-        self.map_sub = self.create_subscription(OccupancyGrid, "/map", self.on_map, 10)
-        self.start_sub = self.create_subscription(PoseStamped, "/start", self.on_start, 10)
-        self.goal_sub  = self.create_subscription(PoseStamped, "/goal", self.on_goal, 10)
-        self.path_pub  = self.create_publisher(Path, "/planned_path", 10)
-        self.mark_pub  = self.create_publisher(MarkerArray, "/bench_markers", 10)
-        self.metric_logger = MetricLogger() if self.get_parameter("log_csv").value else None
+        # ---- params (make these launch-configurable) ----
+        self.declare_parameter("algo", "astar")                # bfs|dijkstra|greedy|astar|weighted_astar
+        self.declare_parameter("moves", 8)                     # 4 or 8
+        self.declare_parameter("weight", 1.0)                  # only for weighted_astar
+        self.declare_parameter("grid", 64)
+        self.declare_parameter("fill", 0.20)
+        self.declare_parameter("seed", 42)
+        self.declare_parameter("map_path", "")
+        self.declare_parameter("start_goal", "")               # like "r1,c1:r2,c2"
+        self.declare_parameter("resolution", 1.0)
+        self.declare_parameter("frame_id", "map")
 
-        self.map_msg = None
-        self.obst = None
-        self.info = None
-        self.start_g = None
-        self.goal_g = None
+        algo   = self.get_parameter("algo").get_parameter_value().string_value
+        moves  = int(self.get_parameter("moves").value)
+        weight = float(self.get_parameter("weight").value)
+        size   = int(self.get_parameter("grid").value)
+        fill   = float(self.get_parameter("fill").value)
+        seed   = self.get_parameter("seed").value
+        map_p  = self.get_parameter("map_path").get_parameter_value().string_value or None
+        sg     = self.get_parameter("start_goal").get_parameter_value().string_value or None
+        res    = float(self.get_parameter("resolution").value)
+        frame  = self.get_parameter("frame_id").get_parameter_value().string_value
 
-        random.seed(self.get_parameter("seed").value)
-
-    def on_map(self, msg):
-        self.obst, self.info = grid_from_occupancy(msg)
-        self.map_msg = msg
-        self.get_logger().info(f"Map received {self.info.width}x{self.info.height}")
-
-    def on_start(self, msg: PoseStamped):
-        if not self.info: return
-        self.start_g = world_to_grid(msg.pose.position.x, msg.pose.position.y, self.info)
-        self.try_plan()
-
-    def on_goal(self, msg: PoseStamped):
-        if not self.info: return
-        self.goal_g = world_to_grid(msg.pose.position.x, msg.pose.position.y, self.info)
-        self.try_plan()
-
-    def select_planner(self):
-        name = self.get_parameter("planner").value
-        if name == "bfs":
-            return BFSPlanner()
-        elif name == "astar":
-            return AStarPlanner(heuristic=self.get_parameter("heuristic").value)
-        # elif name == "dijkstra":
-        #     return DijkstraPlanner()
-        # elif name == "theta_star":
-        #     return ThetaStarPlanner(heuristic=self.get_parameter("heuristic").value)
-        # elif name == "jps":
-        #     return JPSPlanner()
+        # ---- build grid / start / goal ----
+        if map_p:
+            grid = load_grid_from_ascii(map_p)
+            src = f"map='{map_p}'"
         else:
-            self.get_logger().warn("Unknown planner; defaulting to A*")
-            return AStarPlanner()
+            grid = make_random_grid(size=size, fill=fill, seed=seed)
+            src = f"grid={size}, fill={fill}, seed={seed}"
 
-    def try_plan(self):
-        if self.obst is None or self.start_g is None or self.goal_g is None: return
-        planner = self.select_planner()
-        neigh = neighbors8 if int(self.get_parameter("connectivity").value) == 8 else neighbors4
+        rng = np.random.default_rng(seed)
+        if sg:
+            start, goal = parse_rc_pair(sg)
+        else:
+            start = random_free_cell(grid, rng)
+            goal  = random_free_cell(grid, rng)
+            tries = 0
+            while goal == start and tries < 10:
+                goal = random_free_cell(grid, rng)
+                tries += 1
+        grid[start] = 0; grid[goal] = 0
 
+        # ---- choose planner ----
+        neighbor_fn = make_neighbor_fn(grid, moves)
+        if algo == "bfs":
+            planner = bfs.BFSPlanner()
+        elif algo == "dijkstra":
+            planner = dijkstra.DijkstraPlanner()
+        elif algo == "greedy":
+            planner = greedy.GreedyBestFirstPlanner()
+        elif algo == "astar":
+            planner = astar.AStarPlanner()
+        elif algo == "weighted_astar":
+            planner = weighted_astar.WeightedAStarPlanner(weight=weight)
+        else:
+            raise ValueError(f"Unknown algo '{algo}'")
 
-        t0 = time.perf_counter()
-        result = planner.plan(self.obst, self.start_g, self.goal_g, neigh)
-        dt_ms = 1000.0 * (time.perf_counter() - t0)
+        self.get_logger().info(f"[viz] {src}, algo={algo}, moves={moves}, weight={weight}")
 
-        # Path -> world coords
-        path_w = [grid_to_world(x, y, self.info) for (x,y) in result.path]
+        # ---- run and prepare messages ----
+        res_plan = planner.plan(grid, start, goal, neighbor_fn=neighbor_fn)
+        path = res_plan.path or []
+        og   = to_occupancy_grid(grid, frame_id=frame, resolution=res)
+        path_msg = path_to_msg(path, frame_id=frame, resolution=res)
 
-        # Publish nav_msgs/Path
-        path_msg = Path()
-        path_msg.header.frame_id = "map"
-        for x,y in path_w:
-            ps = PoseStamped()
-            ps.header.frame_id = "map"
-            ps.pose.position.x = x
-            ps.pose.position.y = y
-            path_msg.poses.append(ps)
+        # start/goal markers
+        sx = start[1] * res + 0.5 * res
+        sy = start[0] * res + 0.5 * res
+        gx = goal[1]  * res + 0.5 * res
+        gy = goal[0]  * res + 0.5 * res
+        markers = MarkerArray()
+        markers.markers.append(point_marker(sx, sy, 1, (0.0, 1.0, 0.0, 1.0), frame_id=frame))  # start: green
+        markers.markers.append(point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=frame))  # goal: red
+
+        # ---- publishers (latching-like QoS) ----
+        from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+        latched = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.grid_pub  = self.create_publisher(OccupancyGrid, "grid", latched)
+        self.path_pub  = self.create_publisher(Path,          "path", latched)
+        self.mk_pub    = self.create_publisher(MarkerArray,   "markers", latched)
+
+        # publish once (RViz will latched-subscribe and render)
+        self.grid_pub.publish(og)
         self.path_pub.publish(path_msg)
+        self.mk_pub.publish(markers)
 
-        # Publish markers (path + expansions as dots along path parent set for demo)
-        ma = MarkerArray()
-        ma.markers.append(path_marker(path_w, "map", 0))
-        # For simplicity we plot only path points; if you log expansions during planning, add them here.
-        self.mark_pub.publish(ma)
+        self.get_logger().info(f"[viz] published grid/path/markers  path_len={len(path)}  nodes={res_plan.nodes_expanded}")
 
-        # Metrics
-        if self.metric_logger:
-            plen = len(result.path)
-            length_grid = 0.0
-            if plen >= 2:
-                # compute in grid coords
-                import math
-                length_grid = sum(math.hypot(x2-x1, y2-y1) for (x1,y1),(x2,y2) in zip(result.path[:-1], result.path[1:]))
-            m = Metrics(
-                planner=planner.name,
-                success=result.success,
-                runtime_ms=dt_ms,
-                nodes_expanded=result.nodes_expanded,
-                path_len_grid=length_grid,
-                turns=0,  # you can compute turns via grid_utils.count_turns(result.path)
-                peak_open=result.peak_open,
-                peak_closed=result.peak_closed,
-                grid_w=self.info.width,
-                grid_h=self.info.height,
-                density_pct=100.0 * self.obst.sum() / (self.info.width * self.info.height),
-                seed=0
-            )
-            self.metric_logger.write(m)
+        # exit after a short delay so RViz has time to subscribe
+        self.create_timer(1.0, self._shutdown_once)
 
-        self.get_logger().info(f"[{planner.name}] success={result.success} time={dt_ms:.2f}ms nodes={result.nodes_expanded} open*={result.peak_open}")
+    def _shutdown_once(self):
+        self.get_logger().info("[viz] done; shutting down")
+        rclpy.shutdown()
 
 def main():
     rclpy.init()
-    node = PlannerNode()
+    node = PlannerVizNode()
     rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+
+if __name__ == "__main__":
+    main()
 
