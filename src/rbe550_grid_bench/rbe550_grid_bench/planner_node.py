@@ -1,16 +1,19 @@
 # rbe550_grid_bench/planner_node.py
+#!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+import numpy as np
+from std_srvs.srv import Trigger
+import random
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path, OccupancyGrid, MapMetaData
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import Header, ColorRGBA
-
-import numpy as np
 from .grid_utils import make_random_grid, load_grid_from_ascii, random_free_cell, parse_rc_pair
 from .neighbors import neighbors4, neighbors8
-from .algorithms import bfs, dijkstra, greedy, astar, weighted_astar
+from .algorithms import bfs, dijkstra, greedy, astar, weighted_astar, theta, jps
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+
 
 
 def make_neighbor_fn(grid, moves: int):
@@ -81,6 +84,7 @@ def path_to_msg(path_rc, frame_id="map", resolution=1.0):
         p.poses.append(ps)
     return p
 
+
 def point_marker(x, y, mid, rgba, scale=0.35, frame_id="map"):
     m = Marker()
     m.header.frame_id = frame_id
@@ -103,14 +107,56 @@ def point_marker(x, y, mid, rgba, scale=0.35, frame_id="map"):
     
     m.lifetime.sec = 0
     return m
- 
- 
+
+
+#above grid map
+#def text_marker(
+#    text, mid,
+#    rgba=(1.0, 0.2, 0.8, 1.0),  # Bright pink!
+#    frame_id="map",
+#    x=0.0, y=0.0, z=35.0,       # Position ABOVE the grid
+#    scale=3.5                    # Bigger text!
+#):
+
+#below grid map
+def text_marker(
+    text, mid,
+     rgba=(1.0, 0.2, 0.8, 1.0),
+    frame_id="map",
+    x=0.0, y=0.0, z=-55.0,    # Position BELOW the grid
+    scale=5.0
+):
+    m = Marker()
+    m.header.frame_id = frame_id
+    m.header.stamp = rclpy.clock.Clock().now().to_msg()
+    m.id = mid
+    m.type = Marker.TEXT_VIEW_FACING
+    m.action = Marker.ADD
+
+    m.pose.position.x = x
+    m.pose.position.y = y
+    m.pose.position.z = z
+
+    m.scale.z = scale  # Bigger scale for larger text
+
+    m.color.r = rgba[0]  # 1.0 = bright red component
+    m.color.g = rgba[1]  # 0.2 = low green  
+    m.color.b = rgba[2]  # 0.8 = high blue = pink!
+    m.color.a = rgba[3]  # 1.0 = fully opaque
+
+    m.text = text
+    m.lifetime.sec = 0
+    return m
+
+
+
 class PlannerVizNode(Node):
     def __init__(self):
         super().__init__("planner_viz")
 
+
         # ---- params (make these launch-configurable) ----
-        self.declare_parameter("algo", "astar")                # bfs|dijkstra|greedy|astar|weighted_astar
+        self.declare_parameter("algo", "astar")                # bfs|dijkstra|greedy|astar|weighted_astar|theta_star|jps
         self.declare_parameter("moves", 8)                     # 4 or 8
         self.declare_parameter("weight", 1.0)                  # only for weighted_astar
         self.declare_parameter("grid", 64)
@@ -131,6 +177,16 @@ class PlannerVizNode(Node):
         sg     = self.get_parameter("start_goal").get_parameter_value().string_value or None
         res    = float(self.get_parameter("resolution").value)
         frame  = self.get_parameter("frame_id").get_parameter_value().string_value
+        
+        self.algo = algo
+        self.moves = moves
+        self.weight = weight
+        self.size = size
+        self.fill = fill
+        self.map_p = map_p
+        self.sg = sg
+        self.res = res
+        self.frame = frame
 
 
         # ---- build grid / start / goal ----
@@ -186,6 +242,12 @@ class PlannerVizNode(Node):
             planner = astar.AStarPlanner()
         elif algo == "weighted_astar":
             planner = weighted_astar.WeightedAStarPlanner(weight=weight)
+        elif algo == "theta_star":
+            # Theta* - any-angle paths
+            planner = theta.ThetaStarPlanner()
+        elif algo == "jps":
+            # Jump Point Search - optimization for uniform-cost grids
+            planner = jps.JumpPointSearchPlanner()
         else:
             raise ValueError(f"Unknown algo '{algo}'")
 
@@ -200,13 +262,41 @@ class PlannerVizNode(Node):
         self.path_msg = path_to_msg(path, frame_id=frame, resolution=res)
 
         # start/goal markers
-        sx = start[1] * res + 0.5 * res - 32.0  # Centered
-        sy = start[0] * res + 0.5 * res - 32.0  # Centered
-        gx = goal[1]  * res + 0.5 * res - 32.0  # Centered
-        gy = goal[0]  * res + 0.5 * res - 32.0  # Centered
+        # Use the actual grid shape instead of hard-coded 32.0
+        grid_h, grid_w = grid.shape
+        offset_x = 0.5 * grid_w * res
+        offset_y = 0.5 * grid_h * res
+
+        sx = start[1] * res + 0.5 * res - offset_x
+        sy = start[0] * res + 0.5 * res - offset_y
+        gx = goal[1]  * res + 0.5 * res - offset_x
+        gy = goal[0]  * res + 0.5 * res - offset_y
+
+ 
+             
+        # In both __init__ and handle_randomize_grid, replace the info_text with:
+        info_text = (
+            f"{algo.upper()} | Moves: {moves} | Grid: {size}x{size} | "
+            f"Path: {len(path)} | Nodes: {res_plan.nodes_expanded}"
+        )
+        
+        
+        # Hot pink - very bright
+        #rgba=(1.0, 0.0, 0.8, 1.0)
+
+        # Softer pink  
+        #rgba=(1.0, 0.4, 0.7, 1.0)
+
+        # Neon pink
+        #rgba=(1.0, 0.1, 0.9, 1.0)
+        
         self.markers = MarkerArray()
-        self.markers.markers.append(point_marker(sx, sy, 1, (0.0, 1.0, 0.0, 1.0), frame_id=frame))  # start: green
-        self.markers.markers.append(point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=frame))  # goal: red
+        # Only add text marker (no background)
+        self.markers.markers.append(text_marker(info_text, 11, frame_id=frame))
+
+        # Start and goal markers
+        self.markers.markers.append(point_marker(sx, sy, 1, (0.0, 1.0, 0.0, 1.0), frame_id=frame))
+        self.markers.markers.append(point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=frame))
 
         # ---- publishers (use default QoS) ----
         self.grid_pub  = self.create_publisher(OccupancyGrid, "grid", 10)  # Default QoS
@@ -218,8 +308,17 @@ class PlannerVizNode(Node):
         
         # Also publish periodically to ensure RViz gets it
         self.timer = self.create_timer(1.0, self.publish_data)  # Publish every second
+        
+        # Service to randomize grid and replan
+        self.randomize_srv = self.create_service(
+            Trigger,
+            'randomize_grid',
+            self.handle_randomize_grid
+        )
+
 
         self.get_logger().info(f"[viz] published grid/path/markers  path_len={len(path)}  nodes={res_plan.nodes_expanded}")
+
 
     def publish_data(self):
         """Publish the visualization data with current timestamp"""
@@ -236,7 +335,101 @@ class PlannerVizNode(Node):
         self.path_pub.publish(self.path_msg)
         self.mk_pub.publish(self.markers)
         
-        self.get_logger().info("Published visualization data")
+        self.get_logger().info("Published visualization data") 
+        
+        
+    def handle_randomize_grid(self, request, response):
+        # pick a new seed
+        new_seed = random.randint(0, 10_000_000)
+        self.get_logger().info(f"[viz] randomize_grid seed={new_seed}")
+
+        # rebuild grid
+        if self.map_p:
+            grid = load_grid_from_ascii(self.map_p)
+            src = f"map='{self.map_p}'"
+        else:
+            grid = make_random_grid(size=self.size, fill=self.fill, seed=new_seed)
+            src = f"grid={self.size}, fill={self.fill}, seed={new_seed}"
+
+        rng = np.random.default_rng(new_seed)
+        if self.sg:
+            start, goal = parse_rc_pair(self.sg)
+        else:
+            start = random_free_cell(grid, rng)
+            goal  = random_free_cell(grid, rng)
+            tries = 0
+            while goal == start and tries < 10:
+                goal = random_free_cell(grid, rng)
+                tries += 1
+        grid[start] = 0
+        grid[goal] = 0
+
+        # *** read latest algo / moves from parameters ***
+        algo  = self.get_parameter("algo").get_parameter_value().string_value
+        moves = int(self.get_parameter("moves").value)
+
+        # planner (same as in __init__, but use algo/moves we just read)
+        neighbor_fn = make_neighbor_fn(grid, moves)
+        if algo == "bfs":
+            planner = bfs.BFSPlanner()
+        elif algo == "dijkstra":
+            planner = dijkstra.DijkstraPlanner()
+        elif algo == "greedy":
+            planner = greedy.GreedyBestFirstPlanner()
+        elif algo == "astar":
+            planner = astar.AStarPlanner()
+        elif algo == "weighted_astar":
+            planner = weighted_astar.WeightedAStarPlanner(weight=self.weight)
+        elif algo == "theta_star":
+            planner = theta.ThetaStarPlanner()
+        elif algo == "jps":
+            planner = jps.JumpPointSearchPlanner()
+        else:
+            raise ValueError(f"Unknown algo '{algo}'")
+
+        res_plan = planner.plan(grid, start, goal, neighbor_fn=neighbor_fn)
+        path = res_plan.path or []
+
+        # rebuild messages
+        self.og = to_occupancy_grid(grid, frame_id=self.frame, resolution=self.res)
+        self.path_msg = path_to_msg(path, frame_id=self.frame, resolution=self.res)
+
+        # --- center start/goal using **actual** grid size ---
+        grid_h, grid_w = grid.shape
+        offset_x = 0.5 * grid_w * self.res
+        offset_y = 0.5 * grid_h * self.res
+
+        sx = start[1] * self.res + 0.5 * self.res - offset_x
+        sy = start[0] * self.res + 0.5 * self.res - offset_y
+        gx = goal[1]  * self.res + 0.5 * self.res - offset_x
+        gy = goal[0]  * self.res + 0.5 * self.res - offset_y
+
+        # updated info text (uses algo/moves we just read)
+        info_text = (
+            f"{algo.upper()} | Moves: {moves} | Grid: {grid_w}x{grid_h} | "
+            f"Path: {len(path)} | Nodes: {res_plan.nodes_expanded}"
+        )
+
+        self.markers = MarkerArray()
+        self.markers.markers.append(text_marker(info_text, 11, frame_id=self.frame))
+        self.markers.markers.append(
+            point_marker(sx, sy, 1, (0.0, 1.0, 0.0, 1.0), frame_id=self.frame)
+        )
+        self.markers.markers.append(
+            point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=self.frame)
+        )
+
+        # publish immediately so RViz refreshes
+        self.publish_data()
+
+        self.get_logger().info(
+            f"[viz randomize] {src}, algo={algo}, moves={moves}, path_len={len(path)}, nodes={res_plan.nodes_expanded}"
+        )
+
+        response.success = True
+        response.message = f"Randomized grid with seed={new_seed}"
+        return response
+
 
 
 def main():

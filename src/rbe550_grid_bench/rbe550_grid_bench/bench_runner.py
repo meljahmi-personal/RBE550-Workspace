@@ -1,4 +1,5 @@
 # rbe550_grid_bench/bench_runner.py
+#!/usr/bin/env python3
 
 import time
 import numpy as np
@@ -10,7 +11,7 @@ from .grid_utils import (
     parse_rc_pair,
 )
 from .neighbors import neighbors4, neighbors8
-from .algorithms import bfs, dijkstra, greedy, astar, weighted_astar
+from .algorithms import bfs, dijkstra, greedy, astar, weighted_astar, theta, jps
 
 
 
@@ -50,8 +51,14 @@ def run_planner(grid, start, goal, args):
     elif args.algo == "astar":
         planner = astar.AStarPlanner()
     elif args.algo in ("wastar", "weighted_astar"):
-        # NEW: Weighted A*
+        # Weighted A*
         planner = weighted_astar.WeightedAStarPlanner(weight=args.weight)
+    elif args.algo == "theta_star":
+        # Theta* - any-angle paths
+        planner = theta.ThetaStarPlanner()
+    elif args.algo == "jps":
+        # Jump Point Search - optimization for uniform-cost grids
+        planner = jps.JumpPointSearchPlanner()
     else:
         raise ValueError(f"Unknown planner algo={args.algo}")
 
@@ -69,6 +76,7 @@ def run_planner(grid, start, goal, args):
         "runtime_ms": round(dt_ms, 3),
     }
     return path, stats
+
 
 
 def run_bench(args):

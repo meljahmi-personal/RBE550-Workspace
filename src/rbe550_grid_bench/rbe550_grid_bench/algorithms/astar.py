@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 A* search on a 2D grid.
 

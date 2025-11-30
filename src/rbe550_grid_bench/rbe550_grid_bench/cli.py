@@ -10,10 +10,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     This must create and return an argparse.ArgumentParser instance.
     """
-    parser = argparse.ArgumentParser(
-        description="Benchmark classical grid-based planners (BFS, Dijkstra, Greedy, A*)"
-    )
 
+    parser = argparse.ArgumentParser(
+        description="Benchmark classical grid-based planners (BFS, Dijkstra, Greedy, A*, Theta*, JPS)"
+    )
+    
     # Core simulation controls
     parser.add_argument(
         "--steps",
@@ -47,12 +48,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of enemies (not yet used in all experiments)",
     )
 
+
     # Planner selection
     parser.add_argument(
     "--algo",
     type=str,
     default="bfs",
-    choices=["bfs", "dijkstra", "greedy", "astar", "weighted_astar", "wastar"],
+    choices=["bfs", "dijkstra", "greedy", "astar", "weighted_astar", "wastar", "theta_star", "jps"],
     help="Planning algorithm",
     )
 
