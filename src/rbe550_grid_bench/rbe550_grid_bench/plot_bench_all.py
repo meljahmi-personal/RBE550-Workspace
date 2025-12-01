@@ -30,6 +30,7 @@ def load_bench(csv_path: Path):
     path_len = []
     runtime_ms = []
     nodes_expanded = []
+    memory_nodes = []  # NEW
 
     with csv_path.open("r", newline="") as f:
         reader = csv.DictReader(f)
@@ -39,7 +40,14 @@ def load_bench(csv_path: Path):
             runtime_ms.append(float(row["runtime_ms"]))
             nodes_expanded.append(int(row["nodes_expanded"]))
 
-    return algos, path_len, runtime_ms, nodes_expanded
+            # Handle possible empty strings in peak_* columns
+            peak_open = int(row["peak_open"]) if row["peak_open"] else 0
+            peak_closed = int(row["peak_closed"]) if row["peak_closed"] else 0
+
+            # Simple memory proxy: total nodes that ever sat in OPEN or CLOSED
+            memory_nodes.append(peak_open + peak_closed)
+
+    return algos, path_len, runtime_ms, nodes_expanded, memory_nodes
 
 
 def bar_plot(x_labels, values, ylabel, title, out_path: Path):
@@ -66,7 +74,7 @@ def main() -> None:
     if not csv_path.exists():
         raise SystemExit(f"CSV not found: {csv_path}")
 
-    algos, path_len, runtime_ms, nodes_expanded = load_bench(csv_path)
+    algos, path_len, runtime_ms, nodes_expanded, memory_nodes = load_bench(csv_path)
 
     # 1) Runtime
     bar_plot(
@@ -93,6 +101,15 @@ def main() -> None:
         ylabel="Path Length (cells)",
         title="Path Length by Planner (64×64, fill=0.2, moves=8)",
         out_path=outdir / "bench_path_len.png",
+    )
+
+    # 4) Memory footprint (OPEN + CLOSED)
+    bar_plot(
+        algos,
+        memory_nodes,
+        ylabel="Nodes in Memory",
+        title="Memory Footprint by Planner (64×64, fill=0.2, moves=8)",
+        out_path=outdir / "bench_memory_nodes.png",
     )
 
 
