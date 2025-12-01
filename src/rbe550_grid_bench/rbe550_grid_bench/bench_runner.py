@@ -3,6 +3,9 @@
 
 import time
 import numpy as np
+import os
+import csv
+
 
 from .grid_utils import (
     make_random_grid,
@@ -14,6 +17,27 @@ from .neighbors import neighbors4, neighbors8
 from .algorithms import bfs, dijkstra, greedy, astar, weighted_astar, theta, jps
 
 
+def compute_turns(path_rc):
+    """
+    Count direction changes along a path.
+    path_rc: list of (r, c)
+    """
+    if path_rc is None or len(path_rc) < 3:
+        return 0
+
+    turns = 0
+    for i in range(2, len(path_rc)):
+        r1, c1 = path_rc[i - 2]
+        r2, c2 = path_rc[i - 1]
+        r3, c3 = path_rc[i]
+
+        dir1 = (r2 - r1, c2 - c1)
+        dir2 = (r3 - r2, c3 - c2)
+
+        if dir1 != dir2:
+            turns += 1
+    return turns
+ 
 
 def make_neighbor_fn(grid, moves: int):
     """Return a function neighbor_fn(rc) -> iterable[(nr, nc, step_cost)]."""
@@ -78,7 +102,6 @@ def run_planner(grid, start, goal, args):
     return path, stats
 
 
-
 def run_bench(args):
     extra = ""
     if getattr(args, "algo", "") in ("wastar", "weighted_astar"):
@@ -115,8 +138,10 @@ def run_bench(args):
 
     h, w = grid.shape
     blocked = int(grid.sum())
+    obstacle_frac = blocked / (h * w)
+
     print(f"[rbe550] {src}, enemies={args.enemies}, algo={args.algo}, gif={args.gif}, show={args.show}")
-    print(f"[rbe550] Grid: {h}x{w}, obstacles={blocked} ({blocked/(h*w):.1%}), start={start}, goal={goal}")
+    print(f"[rbe550] Grid: {h}x{w}, obstacles={blocked} ({obstacle_frac:.1%}), start={start}, goal={goal}")
 
     # Run planner
     path, stats = run_planner(grid, start, goal, args)
@@ -126,6 +151,54 @@ def run_bench(args):
           f"path_len={stats.get('path_len')}, "
           f"runtime_ms={stats.get('runtime_ms')}, "
           f"nodes_expanded={stats.get('nodes_expanded')}")
+
+    # 🔹 NEW: optional CSV logging
+    csv_path = getattr(args, "csv_path", None)
+    if csv_path:
+        write_header = not os.path.exists(csv_path)
+        with open(csv_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            if write_header:
+                writer.writerow([
+                    "algo",
+                    "moves",
+                    "grid",
+                    "fill",
+                    "obstacles",
+                    "obstacle_frac",
+                    "start_r",
+                    "start_c",
+                    "goal_r",
+                    "goal_c",
+                    "success",
+                    "path_len",
+                    "runtime_ms",
+                    "nodes_expanded",
+                    "cost",
+                    "peak_open",
+                    "peak_closed",
+                    "seed",
+                ])
+
+            writer.writerow([
+                args.algo,
+                args.moves,
+                args.grid,
+                args.fill,
+                blocked,
+                round(obstacle_frac, 4),
+                start[0], start[1],
+                goal[0], goal[1],
+                int(ok),
+                stats.get("path_len"),
+                stats.get("runtime_ms"),
+                stats.get("nodes_expanded"),
+                stats.get("cost"),
+                stats.get("peak_open"),
+                stats.get("peak_closed"),
+                args.seed,
+            ])
+
 
 
 def main():

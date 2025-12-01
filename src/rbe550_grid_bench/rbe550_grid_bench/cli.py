@@ -48,16 +48,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of enemies (not yet used in all experiments)",
     )
 
-
     # Planner selection
     parser.add_argument(
-    "--algo",
-    type=str,
-    default="bfs",
-    choices=["bfs", "dijkstra", "greedy", "astar", "weighted_astar", "wastar", "theta_star", "jps"],
-    help="Planning algorithm",
+        "--algo",
+        type=str,
+        default="bfs",
+        choices=["bfs", "dijkstra", "greedy", "astar", "weighted_astar", "wastar", "theta_star", "jps"],
+        help="Planning algorithm",
     )
-
 
     # Randomness / seeds
     parser.add_argument(
@@ -77,13 +75,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--show",
         action="store_true",
+        default=False,
         help="If set, show live visualization (if supported)",
     )
-    
+    # IMPORTANT: make no-show actually flip `show`
     parser.add_argument(
         "--no-show",
-        action="store_true",
-        help="Disable visualization (alias for default behavior)",
+        dest="show",
+        action="store_false",
+        help="Disable visualization (default behavior)",
     )
 
     # 4- or 8-connected grid
@@ -110,16 +110,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Explicit start/goal as 'r1,c1:r2,c2' (optional)",
     )
-    
+
     parser.add_argument(
-    "--weight",
-    type=float,
-    default=1.0,
-    help="Heuristic weight for weighted A*. Use 1.0 for standard A*; >1.0 for greedier search.",
+        "--weight",
+        type=float,
+        default=1.0,
+        help="Heuristic weight for weighted A*. Use 1.0 for standard A*; >1.0 for greedier search.",
     )
 
+    # 🔹 NEW: CSV logging path (what run_all_benchmarks.sh expects)
+    parser.add_argument(
+        "--csv",
+        dest="csv_path",
+        type=str,
+        default=None,
+        help="If set, append one row of metrics to this CSV file.",
+    )
 
     return parser
+
+
+def main() -> None:
+    """
+    Entry point for console_scripts: 'bench'.
+    Parses arguments and calls run_bench(args).
+    """
+    args = build_parser().parse_args()
+    run_bench(args)
 
 
 def main() -> None:

@@ -27,9 +27,12 @@ setup(
     entry_points={
         'console_scripts': [
             'bench = rbe550_grid_bench.cli:main',
-            'planner_node = rbe550_grid_bench.planner_node:main',  
+            'planner_node = rbe550_grid_bench.planner_node:main',
+            'plot_bench = rbe550_grid_bench.plot_bench_all:main',
         ],
     },
+
 )
+
 
 

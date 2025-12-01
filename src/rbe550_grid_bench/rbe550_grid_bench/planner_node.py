@@ -150,12 +150,13 @@ def text_marker(
 
 
 
+
 class PlannerVizNode(Node):
+
     def __init__(self):
         super().__init__("planner_viz")
 
-
-        # ---- params (make these launch-configurable) ----
+        # ---- params (launch-configurable) ----
         self.declare_parameter("algo", "astar")                # bfs|dijkstra|greedy|astar|weighted_astar|theta_star|jps
         self.declare_parameter("moves", 8)                     # 4 or 8
         self.declare_parameter("weight", 1.0)                  # only for weighted_astar
@@ -177,7 +178,8 @@ class PlannerVizNode(Node):
         sg     = self.get_parameter("start_goal").get_parameter_value().string_value or None
         res    = float(self.get_parameter("resolution").value)
         frame  = self.get_parameter("frame_id").get_parameter_value().string_value
-        
+
+        # stash these as members
         self.algo = algo
         self.moves = moves
         self.weight = weight
@@ -188,7 +190,6 @@ class PlannerVizNode(Node):
         self.res = res
         self.frame = frame
 
-
         # ---- build grid / start / goal ----
         if map_p:
             grid = load_grid_from_ascii(map_p)
@@ -197,8 +198,8 @@ class PlannerVizNode(Node):
             grid = make_random_grid(size=size, fill=fill, seed=seed)
             src = f"grid={size}, fill={fill}, seed={seed}"
 
-        # === ADD DEBUG CODE RIGHT HERE ===
-        self.get_logger().info(f"=== GRID DEBUG INFO ===")
+        # debug info
+        self.get_logger().info("=== GRID DEBUG INFO ===")
         self.get_logger().info(f"Grid type: {type(grid)}")
         self.get_logger().info(f"Grid dtype: {grid.dtype}")
         self.get_logger().info(f"Grid shape: {grid.shape}")
@@ -206,17 +207,12 @@ class PlannerVizNode(Node):
         self.get_logger().info(f"Max value: {np.max(grid)}")
         self.get_logger().info(f"Sum of obstacles: {np.sum(grid)}")
         self.get_logger().info(f"Unique values: {np.unique(grid)}")
-
-        # Check if the grid actually has obstacles
         if np.sum(grid) == 0:
             self.get_logger().warning("WARNING: Grid has NO obstacles!")
         else:
             self.get_logger().info(f"Grid has {np.sum(grid)} obstacles")
-
-        # Print a small sample
         self.get_logger().info(f"Top-left 5x5 sample:\n{grid[:5, :5]}")
-        self.get_logger().info(f"=== END GRID DEBUG ===")
-        # === END DEBUG CODE ===
+        self.get_logger().info("=== END GRID DEBUG ===")
 
         rng = np.random.default_rng(seed)
         if sg:
@@ -228,7 +224,8 @@ class PlannerVizNode(Node):
             while goal == start and tries < 10:
                 goal = random_free_cell(grid, rng)
                 tries += 1
-        grid[start] = 0; grid[goal] = 0
+        grid[start] = 0
+        grid[goal] = 0
 
         # ---- choose planner ----
         neighbor_fn = make_neighbor_fn(grid, moves)
@@ -243,10 +240,8 @@ class PlannerVizNode(Node):
         elif algo == "weighted_astar":
             planner = weighted_astar.WeightedAStarPlanner(weight=weight)
         elif algo == "theta_star":
-            # Theta* - any-angle paths
             planner = theta.ThetaStarPlanner()
         elif algo == "jps":
-            # Jump Point Search - optimization for uniform-cost grids
             planner = jps.JumpPointSearchPlanner()
         else:
             raise ValueError(f"Unknown algo '{algo}'")
@@ -256,68 +251,70 @@ class PlannerVizNode(Node):
         # ---- run and prepare messages ----
         res_plan = planner.plan(grid, start, goal, neighbor_fn=neighbor_fn)
         path = res_plan.path or []
-        
-        # Store messages as instance variables
+
         self.og = to_occupancy_grid(grid, frame_id=frame, resolution=res)
         self.path_msg = path_to_msg(path, frame_id=frame, resolution=res)
 
-        # start/goal markers
-        # Use the actual grid shape instead of hard-coded 32.0
+        # ---- store grid size + offsets ----
         grid_h, grid_w = grid.shape
-        offset_x = 0.5 * grid_w * res
-        offset_y = 0.5 * grid_h * res
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.offset_x = 0.5 * grid_w * res
+        self.offset_y = 0.5 * grid_h * res
 
-        sx = start[1] * res + 0.5 * res - offset_x
-        sy = start[0] * res + 0.5 * res - offset_y
-        gx = goal[1]  * res + 0.5 * res - offset_x
-        gy = goal[0]  * res + 0.5 * res - offset_y
+        sx = start[1] * res + 0.5 * res - self.offset_x
+        sy = start[0] * res + 0.5 * res - self.offset_y
+        gx = goal[1]  * res + 0.5 * res - self.offset_x
+        gy = goal[0]  * res + 0.5 * res - self.offset_y
 
- 
-             
-        # In both __init__ and handle_randomize_grid, replace the info_text with:
+        # ---- animation state ----
+        self.path_rc = path           # list of (r, c)
+        self.anim_idx = 0
+        self.robot_id = 99
+        self.robot_color = (0.0, 0.7, 1.0, 1.0)
+
+        # ---- markers (text + start/goal + robot) ----
         info_text = (
-            f"{algo.upper()} | Moves: {moves} | Grid: {size}x{size} | "
+            f"{algo.upper()} | Moves: {moves} | Grid: {grid_w}x{grid_h} | "
             f"Path: {len(path)} | Nodes: {res_plan.nodes_expanded}"
         )
-        
-        
-        # Hot pink - very bright
-        #rgba=(1.0, 0.0, 0.8, 1.0)
 
-        # Softer pink  
-        #rgba=(1.0, 0.4, 0.7, 1.0)
-
-        # Neon pink
-        #rgba=(1.0, 0.1, 0.9, 1.0)
-        
         self.markers = MarkerArray()
-        # Only add text marker (no background)
         self.markers.markers.append(text_marker(info_text, 11, frame_id=frame))
+        self.markers.markers.append(
+            point_marker(sx, sy, 1, (0.0, 1.0, 0.0, 1.0), frame_id=frame)
+        )
+        self.markers.markers.append(
+            point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=frame)
+        )
 
-        # Start and goal markers
-        self.markers.markers.append(point_marker(sx, sy, 1, (0.0, 1.0, 0.0, 1.0), frame_id=frame))
-        self.markers.markers.append(point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=frame))
+        robot_marker = point_marker(
+            sx, sy, self.robot_id, self.robot_color, scale=0.5, frame_id=frame
+        )
+        self.markers.markers.append(robot_marker)
 
-        # ---- publishers (use default QoS) ----
-        self.grid_pub  = self.create_publisher(OccupancyGrid, "grid", 10)  # Default QoS
-        self.path_pub  = self.create_publisher(Path, "path", 10)           # Default QoS
-        self.mk_pub    = self.create_publisher(MarkerArray, "markers", 10) # Default QoS
+        # ---- publishers ----
+        self.grid_pub  = self.create_publisher(OccupancyGrid, "grid", 10)
+        self.path_pub  = self.create_publisher(Path, "path", 10)
+        self.mk_pub    = self.create_publisher(MarkerArray, "markers", 10)
 
-        # Publish immediately
+        # publish once
         self.publish_data()
-        
-        # Also publish periodically to ensure RViz gets it
-        self.timer = self.create_timer(1.0, self.publish_data)  # Publish every second
-        
-        # Service to randomize grid and replan
+
+        # timers
+        self.timer = self.create_timer(1.0, self.publish_data)   # keep RViz updated
+        self.anim_timer = self.create_timer(0.15, self.step_animation)
+
+        # service
         self.randomize_srv = self.create_service(
             Trigger,
             'randomize_grid',
             self.handle_randomize_grid
         )
 
-
-        self.get_logger().info(f"[viz] published grid/path/markers  path_len={len(path)}  nodes={res_plan.nodes_expanded}")
+        self.get_logger().info(
+            f"[viz] published grid/path/markers  path_len={len(path)}  nodes={res_plan.nodes_expanded}"
+        )
 
 
     def publish_data(self):
@@ -394,15 +391,22 @@ class PlannerVizNode(Node):
         self.og = to_occupancy_grid(grid, frame_id=self.frame, resolution=self.res)
         self.path_msg = path_to_msg(path, frame_id=self.frame, resolution=self.res)
 
-        # --- center start/goal using **actual** grid size ---
-        grid_h, grid_w = grid.shape
-        offset_x = 0.5 * grid_w * self.res
-        offset_y = 0.5 * grid_h * self.res
+        # Save new path for animation
+        self.path_rc = path
+        self.anim_idx = 0
 
-        sx = start[1] * self.res + 0.5 * self.res - offset_x
-        sy = start[0] * self.res + 0.5 * self.res - offset_y
-        gx = goal[1]  * self.res + 0.5 * self.res - offset_x
-        gy = goal[0]  * self.res + 0.5 * self.res - offset_y
+        # Recompute offsets in case grid size changed
+        grid_h, grid_w = grid.shape
+        self.grid_h = grid_h
+        self.grid_w = grid_w
+        self.offset_x = 0.5 * grid_w * self.res
+        self.offset_y = 0.5 * grid_h * self.res
+
+        sx = start[1] * self.res + 0.5 * self.res - self.offset_x
+        sy = start[0] * self.res + 0.5 * self.res - self.offset_y
+        gx = goal[1]  * self.res + 0.5 * self.res - self.offset_x
+        gy = goal[0]  * self.res + 0.5 * self.res - self.offset_y
+
 
         # updated info text (uses algo/moves we just read)
         info_text = (
@@ -418,6 +422,11 @@ class PlannerVizNode(Node):
         self.markers.markers.append(
             point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=self.frame)
         )
+        
+        
+        robot_marker = point_marker(sx, sy, self.robot_id, self.robot_color,
+                            scale=0.5, frame_id=self.frame)
+        self.markers.markers.append(robot_marker)
 
         # publish immediately so RViz refreshes
         self.publish_data()
@@ -429,6 +438,36 @@ class PlannerVizNode(Node):
         response.success = True
         response.message = f"Randomized grid with seed={new_seed}"
         return response
+        
+        
+    def step_animation(self):
+        """Move the robot marker one step along the path and publish markers."""
+        # No path or too short → nothing to animate
+        if not getattr(self, "path_rc", None) or len(self.path_rc) < 2:
+            return
+
+        # Advance along path (wrap around to loop)
+        self.anim_idx = (self.anim_idx + 1) % len(self.path_rc)
+        r, c = self.path_rc[self.anim_idx]
+
+        # Convert (r, c) to RViz coordinates using the same centering offsets
+        x = c * self.res + 0.5 * self.res - self.offset_x
+        y = r * self.res + 0.5 * self.res - self.offset_y
+
+        # Find robot marker and update its pose
+        for m in self.markers.markers:
+            if m.id == self.robot_id:
+                m.pose.position.x = float(x)
+                m.pose.position.y = float(y)
+                m.header.stamp = self.get_clock().now().to_msg()
+                break
+
+        # Publish only markers for smooth animation
+        self.mk_pub.publish(self.markers)
+        
+        
+
+
 
 
 
