@@ -5,8 +5,6 @@ import time
 import numpy as np
 import os
 import csv
-
-
 from .grid_utils import (
     make_random_grid,
     load_grid_from_ascii,
@@ -54,7 +52,6 @@ def make_neighbor_fn(grid, moves: int):
     return neighbor_fn
 
 
-
 def run_planner(grid, start, goal, args):
     """
     Dispatch to the correct planner based on args.algo.
@@ -91,6 +88,7 @@ def run_planner(grid, start, goal, args):
     dt_ms = (time.perf_counter() - t0) * 1000.0
 
     path = res.path
+    turns = compute_turns(path)
     stats = {
         "path_len": len(path),
         "nodes_expanded": res.nodes_expanded,
@@ -98,7 +96,9 @@ def run_planner(grid, start, goal, args):
         "peak_closed": getattr(res, "peak_closed", None),
         "cost": getattr(res, "cost", None),
         "runtime_ms": round(dt_ms, 3),
+        "turns": turns,
     }
+
     return path, stats
 
 
@@ -177,6 +177,7 @@ def run_bench(args):
                     "cost",
                     "peak_open",
                     "peak_closed",
+                    "turns",
                     "seed",
                 ])
 
@@ -196,6 +197,7 @@ def run_bench(args):
                 stats.get("cost"),
                 stats.get("peak_open"),
                 stats.get("peak_closed"),
+                stats.get("turns"),
                 args.seed,
             ])
 
