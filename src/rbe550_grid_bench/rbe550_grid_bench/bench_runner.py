@@ -146,6 +146,8 @@ def run_bench(args):
     # Run planner
     path, stats = run_planner(grid, start, goal, args)
     ok = bool(path)
+    
+
 
     print(f"[rbe550] success={ok}, "
           f"path_len={stats.get('path_len')}, "
