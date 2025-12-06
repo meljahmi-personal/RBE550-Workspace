@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
-MAP=maps/maze_32.txt
-START_GOAL="1,1:7,30"
+GRID=32
+FILL=0.20
+SEED=42
 
-echo "[ASCII map $MAP, start-goal=$START_GOAL]"
+echo "[Random ${GRID}x${GRID}, fill=${FILL}, seed=${SEED}]"
 
 ALGS=(bfs dijkstra greedy astar weighted_astar theta_star jps)
 
@@ -12,21 +13,22 @@ for algo in "${ALGS[@]}"; do
   moves=8
   extra_args=()
 
-  # Keep BFS as 4-connected for the demo contrast
+  # Example: keep BFS 4-connected if you want
   if [[ "$algo" == "bfs" ]]; then
     moves=4
   fi
 
-  # Weighted A* needs a weight
   if [[ "$algo" == "weighted_astar" ]]; then
     extra_args+=(--weight 1.5)
   fi
 
   ./scripts/run.sh \
-    --map "$MAP" \
-    --start-goal "$START_GOAL" \
+    --grid "$GRID" \
+    --fill "$FILL" \
+    --seed "$SEED" \
     --algo "$algo" \
     --moves "$moves" \
+    --steps 1 \
     --no-show \
     "${extra_args[@]}"
 done

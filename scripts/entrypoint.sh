@@ -11,11 +11,13 @@ fi
 
 # Source the workspace overlay if present
 if [[ -f /ws/install/setup.bash ]]; then
-  # Don't fail if overlay sourcing sets/uses unset vars internally
   set +e
   source /ws/install/setup.bash
   set -e
 fi
+
+# NEW: force software OpenGL (makes RViz robust on any GPU/driver)
+export LIBGL_ALWAYS_SOFTWARE=1
 
 # Ensure container-side outputs dir exists (for the bind mount and any artifacts)
 mkdir -p /ws/outputs

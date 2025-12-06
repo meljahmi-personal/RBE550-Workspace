@@ -3,6 +3,12 @@
 This ROS 2 workspace builds and runs the **rbe550_grid_bench** package.  
 It contains implementations of classical search algorithms (**BFS**, **Dijkstra**, **Greedy Best-First**, and **A\***), along with benchmarking utilities for comparing them under identical conditions.
 
+### Developer-only helpers
+
+- `scripts/dev.sh`, `scripts/start.sh` — my personal helpers, not required for grading.
+- Additional dev scripts are under `scripts/dev/` and can be ignored for evaluation.
+
+
 ---
 
 ## Prerequisites (for local runs)

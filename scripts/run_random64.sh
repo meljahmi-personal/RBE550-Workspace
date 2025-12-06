@@ -1,19 +1,15 @@
-#!/bin/bash
-# Run BFS and A* on a seeded random 64x64 grid with 20% obstacle fill
-# Seed fixed for reproducibility
+#!/usr/bin/env bash
+set -e
 
-SEED=42
-SIZE=64
-FILL=0.20
+echo "[Random 64x64, fill=0.20, seed=42]"
 
-echo "[Random ${SIZE}x${SIZE}, fill=${FILL}, seed=${SEED}]"
+COMMON_ARGS="--grid 64 --fill 0.2 --seed 42 --steps 1 --render-every 4 --enemies 10 --moves 8"
 
-# BFS (4-connected)
-./scripts/run.sh --grid $SIZE --fill $FILL --seed $SEED --algo bfs   --moves 4 --no-show
-
-# A* (4-connected, Manhattan)
-./scripts/run.sh --grid $SIZE --fill $FILL --seed $SEED --algo astar --moves 4 --no-show
-
-# A* (8-connected, Euclidean with √2 diagonals)
-./scripts/run.sh --grid $SIZE --fill $FILL --seed $SEED --algo astar --moves 8 --no-show
+./scripts/run.sh $COMMON_ARGS --algo bfs
+./scripts/run.sh $COMMON_ARGS --algo dijkstra
+./scripts/run.sh $COMMON_ARGS --algo greedy
+./scripts/run.sh $COMMON_ARGS --algo astar
+./scripts/run.sh $COMMON_ARGS --algo weighted_astar --weight 1.5
+./scripts/run.sh $COMMON_ARGS --algo theta_star
+./scripts/run.sh $COMMON_ARGS --algo jps
 
