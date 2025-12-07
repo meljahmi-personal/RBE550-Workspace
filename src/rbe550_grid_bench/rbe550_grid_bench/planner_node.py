@@ -13,7 +13,7 @@ from .grid_utils import make_random_grid, load_grid_from_ascii, random_free_cell
 from .neighbors import neighbors4, neighbors8
 from .algorithms import bfs, dijkstra, greedy, astar, weighted_astar, theta, jps
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
-
+from .rviz_helpers import expansions_marker
 
 
 def make_neighbor_fn(grid, moves: int):
@@ -149,8 +149,6 @@ def text_marker(
     return m
 
 
-
-
 class PlannerVizNode(Node):
 
     def __init__(self):
@@ -251,6 +249,8 @@ class PlannerVizNode(Node):
         # ---- run and prepare messages ----
         res_plan = planner.plan(grid, start, goal, neighbor_fn=neighbor_fn)
         path = res_plan.path or []
+        
+        expanded_rc = getattr(res_plan, "expanded_rc", None)
 
         self.og = to_occupancy_grid(grid, frame_id=frame, resolution=res)
         self.path_msg = path_to_msg(path, frame_id=frame, resolution=res)
@@ -273,7 +273,7 @@ class PlannerVizNode(Node):
         self.robot_id = 99
         self.robot_color = (0.0, 0.7, 1.0, 1.0)
 
-        # ---- markers (text + start/goal + robot) ----
+        # ---- markers (text + start/goal + robot + expansions) ----
         info_text = (
             f"{algo.upper()} | Moves: {moves} | Grid: {grid_w}x{grid_h} | "
             f"Path: {len(path)} | Nodes: {res_plan.nodes_expanded}"
@@ -288,10 +288,23 @@ class PlannerVizNode(Node):
             point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=frame)
         )
 
+        # BIG robot sphere
         robot_marker = point_marker(
-            sx, sy, self.robot_id, self.robot_color, scale=0.5, frame_id=frame
+            sx, sy, self.robot_id, self.robot_color, scale=4.0, frame_id=frame
         )
         self.markers.markers.append(robot_marker)
+
+        # Frontier / expanded nodes (if available)
+        if expanded_rc:
+            points_xy = []
+            for (r, c) in expanded_rc:
+                x = c * res + 0.5 * res - self.offset_x
+                y = r * res + 0.5 * res - self.offset_y
+                points_xy.append((x, y))
+
+            exp_marker = expansions_marker(points_xy, frame_id=frame, mid=50)
+            self.markers.markers.append(exp_marker)
+
 
         # ---- publishers ----
         self.grid_pub  = self.create_publisher(OccupancyGrid, "grid", 10)
@@ -408,6 +421,8 @@ class PlannerVizNode(Node):
         gy = goal[0]  * self.res + 0.5 * self.res - self.offset_y
 
 
+        expanded_rc = getattr(res_plan, "expanded_rc", None)
+
         # updated info text (uses algo/moves we just read)
         info_text = (
             f"{algo.upper()} | Moves: {moves} | Grid: {grid_w}x{grid_h} | "
@@ -422,11 +437,22 @@ class PlannerVizNode(Node):
         self.markers.markers.append(
             point_marker(gx, gy, 2, (1.0, 0.0, 0.0, 1.0), frame_id=self.frame)
         )
-        
-        
-        robot_marker = point_marker(sx, sy, self.robot_id, self.robot_color,
-                            scale=0.5, frame_id=self.frame)
+
+        robot_marker = point_marker(
+            sx, sy, self.robot_id, self.robot_color, scale=4.0, frame_id=self.frame
+        )
         self.markers.markers.append(robot_marker)
+
+        # Frontier / expanded nodes again (if available)
+        if expanded_rc:
+            points_xy = []
+            for (r, c) in expanded_rc:
+                x = c * self.res + 0.5 * self.res - self.offset_x
+                y = r * self.res + 0.5 * self.res - self.offset_y
+                points_xy.append((x, y))
+
+            exp_marker = expansions_marker(points_xy, frame_id=self.frame, mid=50)
+            self.markers.markers.append(exp_marker)
 
         # publish immediately so RViz refreshes
         self.publish_data()

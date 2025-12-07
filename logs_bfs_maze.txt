@@ -1,4 +1,0 @@
-[rbe550] Running steps=200, render_every=4, grid=64, fill=0.2, enemies=10, algo=bfs, seed=None, gif=None, show=False
-[rbe550] Running steps=200, render_every=4, map='maps/maze_32.txt', enemies=10, algo=bfs, gif=None, show=False
-[rbe550] Grid: 9x33, obstacles=153 (51.5%), start=(1, 1), goal=(7, 30)
-[ros2run]: Process exited with failure 1

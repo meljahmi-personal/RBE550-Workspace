@@ -1,4 +1,0 @@
-[rbe550] Running steps=200, render_every=4, grid=32, fill=0.25, enemies=10, algo=astar, seed=42, gif=None, show=False
-[rbe550] Running steps=200, render_every=4, grid=32, fill=0.25, seed=42, enemies=10, algo=astar, gif=None, show=False
-[rbe550] Grid: 32x32, obstacles=268 (26.2%), start=(2, 27), goal=(24, 24)
-[ros2run]: Process exited with failure 1
