@@ -199,109 +199,182 @@ figures suitable for direct inclusion in the write‑up.
 
 ---
 
-## 3. Running with Docker (benchmarks and optional RViz)
 
-Docker support is provided so the project can be evaluated without
-installing ROS 2 on the host. Everything (ROS 2 Humble, the package,
-and Python dependencies) runs inside the container.
+#3. Docker Workflows
 
-The main entrypoint for Docker is:
+Docker support allows running the benchmarks without installing ROS 2 on the host.
+The same code is used inside and outside Docker.
 
+The main wrapper is:
 ```bash
 ./scripts/run_docker.sh
 ```
 
-which supports three subcommands:
+It supports three modes:
 
-- `build` – build the image,
-- `bench` – run the benchmark CLI inside the container,
-- `rviz` – (optional) run the RViz visualization from inside Docker
-  on systems with working X11 / OpenGL forwarding.
+build – build the image
 
-### 3.1 Build the Docker image
+bench – run a single benchmark configuration
 
-From the repository root (`RBE550-Workspace`):
+bench_all – run the full multi-algorithm benchmark + plots
+
+rviz – (optional) try RViz from inside Docker (depends on X11/OpenGL setup)
+
+#3.1 Build the Docker image
+
+From RBE550-Workspace:
 
 ```bash
 ./scripts/run_docker.sh build
 ```
 
-This calls `docker build` using the provided `Dockerfile` and
-installs:
+This:
 
-- ROS 2 Humble (base image),
-- RViz,
-- `colcon`,
-- Python dependencies (NumPy, pandas, Matplotlib),
-- this package under `/ws`.
+- uses the provided Dockerfile
 
-The resulting image is tagged (inside the script) so that the other
-subcommands can reuse it.
+- installs ROS 2 Humble, RViz2, colcon
 
-### 3.2 Run benchmarks inside Docker
+- installs Python dependencies (NumPy, pandas, Matplotlib)
 
-Example: run A\* on a 64×64 grid with 8‑connected moves and 5 runs:
+- builds and installs rbe550_grid_bench under /ws in the image
+
+- tags the image as rbe550-bench:latest (via the script)
+
+- You only need to rebuild if you change the source code.
+
+
+# 3.2 Single benchmark run inside Docker
+
+Example: run A* once on a 64×64 grid with 8-connected moves, no GUI:
 
 ```bash
-./scripts/run_docker.sh bench --algo astar --grid 64 --moves 8 --runs 5
+./scripts/run_docker.sh bench --algo astar --grid 64 --moves 8 --steps 1 --no-show
 ```
 
-`run_docker.sh bench`:
+This:
 
-- starts a container from the built image,
-- mounts the host `results/` and `bench_cfg/` directories into the
-  container,
-- forwards all additional arguments (`--algo`, `--grid`, etc.) to
-  the internal benchmark CLI.
+- starts a container
 
-All CSV and PNG outputs from Docker appear under the **same
-host paths** as the host‑side benchmarks:
+- runs the internal CLI (bench) with your arguments
 
-- `results/bench/bench_all.csv`
-- `results/figs/*.png`
+- prints metrics in the host terminal
 
-You can therefore compare host vs Docker runs directly if desired.
+# 3.3 Reproducing all plots inside Docker
 
-### 3.3 Optional: RViz from inside Docker
-
-On systems where X11 / OpenGL forwarding from Docker is configured,
-you can also start the full visualization from inside the container:
+To reproduce the full benchmark CSV and all plots entirely inside Docker,
+using the same settings as the host-side run:
 
 ```bash
-./scripts/run_docker.sh rviz
+./scripts/run_docker.sh build           
+./scripts/run_docker.sh bench_all
 ```
 
-or pass planner parameters through to the launch file, e.g.:
+and writes the same files to results/ on the host:
+
+- results/bench_all.csv
+
+- results/bench_runtime_ms.png
+
+- results/bench_nodes_expanded.png
+
+- results/bench_path_len.png
+
+- results/bench_memory_nodes.png
+
+- results/bench_path_turns.png
+
+- results/bench_efficiency_scatter.png
+
+- results/bench_comprehensive_dashboard.png
+
+# 3.4 Optional: RViz from within Docker
+
+On some systems you can also run RViz inside Docker, for example:
 
 ```bash
+xhost +local:root   # allow local docker GUI (X11) access
+./scripts/run_docker.sh build
 ./scripts/run_docker.sh rviz algo:=astar grid:=64 moves:=8
 ```
 
-This is not required for grading; the **primary RViz workflow is the
-host‑side two‑terminal setup** in Section 2.1.
+This will:
+
+run the same planner_node as the host RViz workflow
+
+launch RViz in the container, displaying the grid and path
+
+Important compatibility note:
+RViz inside Docker depends on the host’s X11, GPU drivers, and OpenGL
+passthrough. On my machine (Ubuntu 22.04 with working X11/OpenGL),
+this configuration runs successfully. On other hardware/driver
+combinations, RViz may fail to display or may log OpenGL-related warnings.
+
+The host-side RViz workflow in Section 2.2 is the primary and most
+reliable visualization path. Docker is primarily intended for running
+benchmarks and reproducing the CSV/plots.
 
 ---
 
-## 4. Notes and troubleshooting
+# 4. Repository Layout (High Level)
 
-- If RViz shows an empty scene at startup, wait a moment: the
-  `planner_node` publishes the occupancy grid, path, and markers
-  shortly after launch and then periodically.
-- Whenever you modify Python code under `src/rbe550_grid_bench/`,
-  re‑run:
+RBE550-Workspace/
+├── src/
+│   └── rbe550_grid_bench/          # ROS 2 package
+│       └── rbe550_grid_bench/
+│           ├── algorithms/         # bfs, dijkstra, greedy, astar, etc.
+│           ├── grid_utils.py
+│           ├── neighbors.py
+│           ├── planner_node.py
+│           ├── bench_runner.py
+│           ├── plot_bench_all.py
+│           └── ...
+│
+├── scripts/
+│   ├── build.sh
+│   ├── activate.sh
+│   ├── run_rviz.sh
+│   ├── feed_rviz_demo.sh
+│   ├── run_random64.sh
+│   ├── run_random32.sh
+│   ├── run_maze32.sh
+│   ├── run_all_benchmarks.sh
+│   ├── run_docker.sh
+│   └── entrypoint.sh
+│
+├── maps/
+│   └── maze_32.txt
+│
+├── results/                        # Auto-created CSV + PNGs
+├── outputs/                        # Raw logs from CLI runs
+├── report/                         # PDF write-up (Word .docx is git-ignored)
+└── Dockerfile
 
-  ```bash
-  ./scripts/build.sh
-  ```
+---
 
-  before launching RViz or benchmarks again.
+# 5. Notes on Portability
 
-- The Word version of the report (`report/*.docx`) is intentionally
-  **ignored by git** to avoid GitHub’s 100 MB file limit. The PDF
-  used for grading is tracked normally as
-  `report/meljahmi_RBE550_ProjectFinalSubmission.pdf`.
+This project was tested thoroughly on:
 
-If any of these steps fail on a clean Ubuntu 22.04 + ROS 2 Humble
-setup, it indicates a bug or missing dependency in my configuration.
-In that case the commit history and scripts are the single source of
-truth for how I generated the results in the report.
+Ubuntu 22.04
+
+ROS 2 Humble
+
+Native host execution (CLI + RViz)
+
+Docker execution (benchmarks + plots, and RViz with working X11/OpenGL)
+
+While the core algorithms and scripts are deterministic, actual behavior of:
+
+Docker-side RViz, and
+
+any GPU-accelerated rendering
+
+can vary across distributions, GPU drivers, and Docker/X11/OpenGL setups.
+If a particular combination fails, the recommended approach is to:
+
+run all benchmarks using run_all_benchmarks.sh on the host or via bench_all in Docker
+
+use the host-side RViz workflow for visualization.
+
+
+
