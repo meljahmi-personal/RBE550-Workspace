@@ -11,8 +11,7 @@ Core features
 - ROS 2 RViz visualization with animated “robot” marker
 - Batch benchmarking on host or inside Docker (same code path)
 
-The instructions below are written so a grader can reproduce everything
-from a clean clone on Ubuntu 22.04.
+The instructions below are written for reproducibility from a clean clone on Ubuntu 22.04.
 
 ---
 
@@ -38,7 +37,7 @@ Install ROS 2 Humble and basic tools (if not already installed):
 
 ```bash
 sudo apt update
-sudo apt install         ros-humble-desktop         python3-colcon-common-extensions         git         build-essential
+sudo apt install ros-humble-desktop python3-colcon-common-extensions git build-essential
 ```
 
 The `ros-humble-desktop` meta‑package includes **RViz**.
