@@ -1,353 +1,307 @@
-# RBE550 Grid Bench – Final Project Workspace
+# RBE550 Grid Bench – Search Benchmark & RViz Demo
 
-This ROS 2 workspace builds and runs the **`rbe550_grid_bench`** package.
+This repository contains my final RBE‑550 project: a **2‑D gridworld search benchmark**
+with RViz visualization and optional Docker support.
 
-It contains:
+Core features
 
-- Classical grid‑based search algorithms: **BFS, Dijkstra, Greedy Best‑First, A\***, **Weighted A\***, **Theta\***, and **Jump Point Search (JPS)**.
-- A random 2‑D gridworld generator (32×32 and 64×64) with adjustable obstacle density.
-- An ASCII‑map loader for maze‑style environments.
-- A ROS 2 node (`planner_node`) that publishes the grid and path to **RViz** for visualization.
-- Benchmarking utilities to compare algorithms under identical conditions and generate summary plots.
+- Multiple planners: **BFS, Dijkstra, Greedy Best‑First, A\*, Weighted A\*, Theta\***, **JPS**
+- Random and fixed maps (32×32 / 64×64, maze and random obstacle fields)
+- Metrics: runtime, nodes expanded, path length, number of turns
+- ROS 2 RViz visualization with animated “robot” marker
+- Batch benchmarking on host or inside Docker (same code path)
 
-The goal is to provide a **reproducible, self‑contained benchmark** that the grader can run either **locally on Ubuntu** or **inside Docker** with minimal effort.
-
----
-
-## 1. Repository Layout
-
-```text
-ros2projrbe550_ws/
-├── src/
-│   └── rbe550_grid_bench/         # Main ROS 2 package
-├── maps/                          # ASCII maps (e.g., maze_32.txt)
-├── scripts/                       # Helper scripts (build, run, docker, RViz)
-│   ├── build.sh                   # Local colcon build helper
-│   ├── run.sh                     # Core runner used by all other scripts
-│   ├── run_all_benchmarks.sh      # 7‑algorithm benchmark + plots
-│   ├── run_random64.sh            # All algorithms on random 64×64 grid
-│   ├── run_random32.sh            # All algorithms on random 32×32 grid
-│   ├── run_maze32.sh              # All algorithms on ASCII map maze_32.txt
-│   ├── run_check.sh               # Quick smoke test
-│   ├── run_rviz.sh                # Launch planner_node + RViz
-│   ├── feed_rviz_demo.sh          # Periodically republish demo path to RViz
-│   ├── run_docker.sh              # Build & run the Docker container
-│   ├── entrypoint.sh              # Container entrypoint (sources ROS + workspace)
-│   ├── start.sh                   # Personal helper (not needed for grading)
-│   └── dev/                       # Extra dev‑only scripts (ignore for grading)
-├── Dockerfile
-├── .dockerignore
-└── README.md                      # This file
-```
-
-Only the files above are required to reproduce my results.  
-Anything under `scripts/dev/` can be safely ignored for grading.
+The instructions below are written so a grader can reproduce everything
+from a clean clone on Ubuntu 22.04.
 
 ---
 
-## 2. Prerequisites (Local / Non‑Docker)
+## 1. Host setup: clone, dependencies, and build
 
-**Important:** This project does **not** use a Python virtual environment.  
-ROS 2 and colcon are installed system‑wide.
+These steps assume **Ubuntu 22.04** with a graphical desktop.
 
-You will need:
+### 1.1 Clone the repository
 
-- **OS**: Ubuntu 22.04 (or compatible Linux)
-- **ROS 2 Humble** installed with desktop packages (includes RViz):  
-  <https://docs.ros.org/en/humble/Installation.html>
-- **colcon** build tools:
-  ```bash
-  sudo apt install python3-colcon-common-extensions
-  ```
-- Basic build tools:
-  ```bash
-  sudo apt install build-essential python3-pip
-  ```
-
-Once ROS 2 Humble is installed, make sure your shell can use it:
+From any directory you like:
 
 ```bash
-source /opt/ros/humble/setup.bash
+git clone https://github.com/meljahmi-personal/RBE550-Workspace.git
+cd RBE550-Workspace
 ```
 
-I assume all of the commands below are executed from the workspace root:
+This is a standard ROS 2 workspace (with `src/`, `scripts/`, `Dockerfile`, etc.).
+No Python virtual environment is used or required.
+
+### 1.2 Install system dependencies (ROS 2 + RViz + tools)
+
+Install ROS 2 Humble and basic tools (if not already installed):
 
 ```bash
-cd ~/ros2projrbe550_ws
+sudo apt update
+sudo apt install         ros-humble-desktop         python3-colcon-common-extensions         git         build-essential
 ```
 
----
+The `ros-humble-desktop` meta‑package includes **RViz**.
 
-## 3. Local Build (non‑Docker)
+### 1.3 Install Python dependencies (for benchmarking and plotting)
 
-From the workspace root:
+The benchmarking and plotting scripts use NumPy, pandas, and Matplotlib.
 
 ```bash
-cd ~/ros2projrbe550_ws
+sudo apt install python3-pip
+pip3 install --user numpy pandas matplotlib
+```
 
-# 1) Source ROS 2
-source /opt/ros/humble/setup.bash
+Again: **no virtual environment** is created by this project; the system
+Python from Ubuntu 22.04 is used.
 
-# 2) Build the rbe550_grid_bench package
+### 1.4 Build the workspace
+
+From the repository root (`RBE550-Workspace`):
+
+```bash
 ./scripts/build.sh
-
-# 3) Source the newly built workspace
-source install/setup.bash
 ```
 
-You should only need to rebuild if you modify code. For re‑runs / benchmarks you just need to re‑source `install/setup.bash` in a new terminal.
+This script:
 
----
+- cleans the workspace (via `colcon`),
+- sources `/opt/ros/humble/setup.bash`,
+- runs `colcon build --symlink-install`.
 
-## 4. Core Runner: scripts/run.sh
-
-All higher‑level scripts ultimately call:
-
-```bash
-./scripts/run.sh [options]
-```
-
-The most important options are:
-
-- `--grid N` – random N×N grid (e.g., 32 or 64).  
-- `--fill P` – obstacle fill fraction (default 0.2).  
-- `--algo {bfs,dijkstra,greedy,astar,weighted_astar,theta_star,jps}`  
-- `--moves {4,8}` – 4‑connected vs 8‑connected grid.  
-- `--steps K` – simulation steps (1 for pure planning benchmark).  
-- `--seed S` – random seed for repeatability.  
-- `--csv results/bench_all.csv` – append results row to CSV.  
-- `--weight W` – heuristic inflation for `weighted_astar`.  
-- `--map maps/maze_32.txt` – load ASCII map instead of random grid.  
-- `--start-goal "r1,c1:r2,c2"` – override default start/goal on ASCII maps.  
-
-You rarely need to call `run.sh` directly – the helper scripts wrap it with the correct arguments.
-
----
-
-## 5. Quick Local Runs
-
-Assuming:
+After a successful build you can either manually source:
 
 ```bash
-cd ~/ros2projrbe550_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ```
 
-### 5.1 Random 64×64 Grid (all algorithms)
+or simply run:
 
 ```bash
-./scripts/run_random64.sh
+./scripts/activate.sh
 ```
 
-This:
-
-- Generates a 64×64 random grid with ~20% obstacles (`fill=0.2`).
-- Uses seed 42 so every algorithm sees **exactly the same world**.
-- Runs **7 algorithms** with 8‑connected moves:
-  - BFS, Dijkstra, Greedy, A*, Weighted A*, Theta*, JPS
-- Prints per‑run stats in the terminal  
-  (`success`, `path_len`, `runtime_ms`, `nodes_expanded`, …).
-
-### 5.2 Random 32×32 Grid (all algorithms)
-
-```bash
-./scripts/run_random32.sh
-```
-
-Same idea as above, just a 32×32 grid. Helpful to see how scaling affects runtime and nodes expanded.
-
-### 5.3 ASCII Maze (maze_32.txt)
-
-```bash
-./scripts/run_maze32.sh
-```
-
-This:
-
-- Loads `maps/maze_32.txt`.
-- Uses the fixed start/goal: `(1,1)` → `(7,30)`.
-- Runs all 7 algorithms on the **same maze**.
-- Lets you observe which algorithms manage to solve this narrow corridor maze and which fail.
+which performs both steps and prints the available ROS 2 commands.
 
 ---
 
-## 6. Benchmarking + Plot Generation
+## 2. Running from the host (RViz demo + benchmarks)
 
-To reproduce my benchmark CSV and plots:
+This section assumes you are **not** using Docker and have completed
+Section 1 on the host.
 
-```bash
-cd ~/ros2projrbe550_ws
-source /opt/ros/humble/setup.bash
-./scripts/run_all_benchmarks.sh --seed 42 --plot
-```
+### 2.1 RViz demo with animated robot (two‑terminal workflow)
 
-What this script does:
+The main visualization workflow uses **two terminals**.
 
-1. **Clean build** of `rbe550_grid_bench`:
-   - Deletes `build/`, `install/`, `log/` and rebuilds via `colcon`.
-2. Sources `install/setup.bash` internally.
-3. Runs **all 7 algorithms** on the same 64×64 random grid (seed 42).
-4. Appends results to:
+#### Terminal 1 – build, activate, and launch RViz
 
-   ```text
-   results/bench_all.csv
-   ```
-
-5. If `--plot` is given, it calls `ros2 run rbe550_grid_bench plot_bench ...` (with a Python fallback) to generate several PNG plots in `results/`:
-
-   - `bench_runtime_ms.png`
-   - `bench_nodes_expanded.png`
-   - `bench_path_len.png`
-   - `bench_memory_nodes.png`
-   - `bench_path_turns.png`
-   - `bench_efficiency_scatter.png`
-   - `bench_comprehensive_dashboard.png`
-
-These images are what I use in the final report to compare search algorithms.
-
----
-
-## 7. RViz Visualization Workflow
-
-The visualization pipeline uses a ROS 2 node (`planner_node`) to publish:
-
-- The occupancy grid (`nav_msgs/OccupancyGrid`),
-- The start and goal poses,
-- The planned path (`nav_msgs/Path`),
-- Marker arrays showing explored nodes / frontier.
-
-The expected workflow uses **two terminals**: one for RViz + node, one as an optional “feeder” to periodically republish demo data.
-
-### 7.1 Terminal 1 – Launch RViz and planner_node
+From `RBE550-Workspace`:
 
 ```bash
-cd ~/ros2projrbe550_ws
-
-# Source ROS 2 and the workspace
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-
-# Launch planner_node + RViz
+./scripts/build.sh
+./scripts/activate.sh
 ./scripts/run_rviz.sh
 ```
 
-This will:
+- `run_rviz.sh` sources ROS 2 and the workspace and launches
+  `bench.launch.py`, which starts:
+  - the `planner_node` (implemented in `src/rbe550_grid_bench/rbe550_grid_bench/planner_node.py`)
+  - RViz with the preconfigured layout `rbe550.rviz`
 
-- Start the `planner_node` (which creates a 64×64 random grid with seed 42).
-- Run A* with 8‑connected moves.
-- Publish the grid and the path.
-- Open RViz with the right topics available.
+In RViz you should see:
 
-In RViz, you can add:
+- a **64×64 occupancy grid** centered at the origin,
+- obstacles as black cells,
+- a shortest path drawn as a polyline,
+- start (green sphere), goal (red sphere),
+- a **large blue “robot” sphere** that animates along the path,
+- a text overlay under the grid with the current algorithm, grid size,
+  path length, and number of nodes expanded.
 
-- **Map** display subscribed to `/grid`.
-- **Path** display subscribed to `/path`.
-- **MarkerArray** displays for explored nodes/frontier if desired.
+Keep this terminal running while you explore RViz.
 
-You can capture **screenshots** directly from this RViz session for the report (e.g., initial grid, planned path, zoomed‑in corridors, etc.).
+#### Terminal 2 – feed different algorithms into RViz
 
-### 7.2 Terminal 2 – Optional demo feeder
-
-If you want the node to republish demo paths periodically (for animations or multiple screenshots), you can also run:
+Open a second terminal in `RBE550-Workspace` and run:
 
 ```bash
-cd ~/ros2projrbe550_ws
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-
+./scripts/activate.sh
+# (the first time on a new machine you may also run ./scripts/build.sh here)
 ./scripts/feed_rviz_demo.sh
 ```
 
-This script uses the same environment and repeatedly calls into the planner logic to update the published grid and path, which RViz visualizes in real time.
+`feed_rviz_demo.sh`:
 
-Use **Ctrl‑C** in each terminal to stop.
+- waits for the `planner_node` started by `run_rviz.sh`,
+- repeatedly calls the `randomize_grid` service,
+- cycles through algorithms and settings,
+- sleeps between calls so you can see RViz update.
 
----
+This is the **exact setup** I used to collect the RViz screenshots
+and to record a short video / GIF showing multiple planners and
+maps over time.
 
-## 8. Docker‑Based Workflow (Recommended for Reproducibility)
+**Important:** `./scripts/feed_rviz_demo.sh` is only meant to be run
+**after** `./scripts/run_rviz.sh` is active in Terminal 1.
 
-If the grader prefers a clean, isolated environment, the entire workspace can be built and run inside Docker.  
-Everything is driven from **scripts/run_docker.sh**.
+### 2.2 Alternate RViz launchers for different maps
 
-From the workspace root on the host:
-
-```bash
-cd ~/ros2projrbe550_ws
-
-# Build the image and start a container
-./scripts/run_docker.sh
-```
-
-The script will:
-
-1. Build a Docker image using the provided `Dockerfile` (Ubuntu + ROS 2 Humble).
-2. Mount the current workspace into the container.
-3. Use `scripts/entrypoint.sh` inside the container to:
-   - Source `/opt/ros/humble/setup.bash`.
-   - Build the workspace with colcon.
-   - Source `install/setup.bash`.
-
-Once inside the container (you should see a shell prompt **inside** Docker), you can run the same commands as in local mode, but **without** reinstalling ROS:
+In addition to `run_rviz.sh` (64×64 random map), there are three
+convenience scripts:
 
 ```bash
-# Inside Docker container:
-
-# Benchmark + plots
-./scripts/run_all_benchmarks.sh --seed 42 --plot
-
-# Random grids
+# 64×64 random map (same as run_rviz.sh)
 ./scripts/run_random64.sh
+
+# 32×32 random obstacle field
 ./scripts/run_random32.sh
 
-# Maze benchmark
+# 32×32 fixed maze (ASCII map)
 ./scripts/run_maze32.sh
 ```
 
-> **Note:** GUI applications like RViz typically require additional Docker flags (X11 or Wayland forwarding, NVIDIA drivers, etc.).  
-> For the purposes of grading, it is sufficient to run **non‑GUI benchmarks in Docker** and run **RViz locally** on a ROS‑capable machine.
+All of these launch the same `planner_node` but with different
+parameters (grid size, obstacle density, or `map_path`).
 
----
+### 2.3 Host‑side benchmarks (CSV + plots)
 
-## 9. Developer‑Only Scripts
+All benchmarking is driven by one helper script that wraps
+`rbe550_grid_bench.bench_runner`.
 
-The following scripts are **personal helpers** and are **not required** for grading:
+From `RBE550-Workspace`:
 
-- `scripts/start.sh`
-- Anything inside `scripts/dev/`
-
-They exist only to speed up my own development iteration.
-
----
-
-## 10. Companion Document Repository
-
-The detailed project proposal and the October 6, 2025 status report are stored in a separate repository:
-
-```text
-git@github.com:meljahmi-personal/RBE550-project-proposal.git
+```bash
+./scripts/activate.sh
+./scripts/run_all_benchmarks.sh --seed 42 --plot
 ```
 
-Relevant subfolder:
+This command:
 
-```text
-project_status_October_6/status/
+- sweeps algorithms (BFS, Dijkstra, Greedy, A\*, Weighted A\*, Theta\*, JPS),
+- sweeps grid sizes (e.g., 32×32 and 64×64) and obstacle densities,
+- logs metrics (runtime, nodes expanded, path length, number of turns),
+- writes a consolidated CSV to:  
+  `results/bench/bench_all.csv`
+- generates PNG plots under:  
+  `results/figs/`
+
+👉 **This exact command was used to generate all benchmark plots
+that appear in the project report:**
+
+```bash
+./scripts/run_all_benchmarks.sh --seed 42 --plot
 ```
 
-That repository contains:
-
-- The initial project proposal,
-- The October 6 status report (PDF),
-- Supporting diagrams referenced in the final report.
+On a typical machine this completes quickly and produces a set of
+figures suitable for direct inclusion in the write‑up.
 
 ---
 
-If anything in this README is unclear during grading, **the scripts themselves are the source of truth**.  
-All of the experiments reported in my write‑up are reproducible via:
+## 3. Running with Docker (benchmarks and optional RViz)
 
-- `scripts/run_all_benchmarks.sh`
-- `scripts/run_random32.sh`
-- `scripts/run_random64.sh`
-- `scripts/run_maze32.sh`
-- `scripts/run_rviz.sh` + `scripts/feed_rviz_demo.sh`
-- `scripts/run_docker.sh`
+Docker support is provided so the project can be evaluated without
+installing ROS 2 on the host. Everything (ROS 2 Humble, the package,
+and Python dependencies) runs inside the container.
+
+The main entrypoint for Docker is:
+
+```bash
+./scripts/run_docker.sh
+```
+
+which supports three subcommands:
+
+- `build` – build the image,
+- `bench` – run the benchmark CLI inside the container,
+- `rviz` – (optional) run the RViz visualization from inside Docker
+  on systems with working X11 / OpenGL forwarding.
+
+### 3.1 Build the Docker image
+
+From the repository root (`RBE550-Workspace`):
+
+```bash
+./scripts/run_docker.sh build
+```
+
+This calls `docker build` using the provided `Dockerfile` and
+installs:
+
+- ROS 2 Humble (base image),
+- RViz,
+- `colcon`,
+- Python dependencies (NumPy, pandas, Matplotlib),
+- this package under `/ws`.
+
+The resulting image is tagged (inside the script) so that the other
+subcommands can reuse it.
+
+### 3.2 Run benchmarks inside Docker
+
+Example: run A\* on a 64×64 grid with 8‑connected moves and 5 runs:
+
+```bash
+./scripts/run_docker.sh bench --algo astar --grid 64 --moves 8 --runs 5
+```
+
+`run_docker.sh bench`:
+
+- starts a container from the built image,
+- mounts the host `results/` and `bench_cfg/` directories into the
+  container,
+- forwards all additional arguments (`--algo`, `--grid`, etc.) to
+  the internal benchmark CLI.
+
+All CSV and PNG outputs from Docker appear under the **same
+host paths** as the host‑side benchmarks:
+
+- `results/bench/bench_all.csv`
+- `results/figs/*.png`
+
+You can therefore compare host vs Docker runs directly if desired.
+
+### 3.3 Optional: RViz from inside Docker
+
+On systems where X11 / OpenGL forwarding from Docker is configured,
+you can also start the full visualization from inside the container:
+
+```bash
+./scripts/run_docker.sh rviz
+```
+
+or pass planner parameters through to the launch file, e.g.:
+
+```bash
+./scripts/run_docker.sh rviz algo:=astar grid:=64 moves:=8
+```
+
+This is not required for grading; the **primary RViz workflow is the
+host‑side two‑terminal setup** in Section 2.1.
+
+---
+
+## 4. Notes and troubleshooting
+
+- If RViz shows an empty scene at startup, wait a moment: the
+  `planner_node` publishes the occupancy grid, path, and markers
+  shortly after launch and then periodically.
+- Whenever you modify Python code under `src/rbe550_grid_bench/`,
+  re‑run:
+
+  ```bash
+  ./scripts/build.sh
+  ```
+
+  before launching RViz or benchmarks again.
+
+- The Word version of the report (`report/*.docx`) is intentionally
+  **ignored by git** to avoid GitHub’s 100 MB file limit. The PDF
+  used for grading is tracked normally as
+  `report/meljahmi_RBE550_ProjectFinalSubmission.pdf`.
+
+If any of these steps fail on a clean Ubuntu 22.04 + ROS 2 Humble
+setup, it indicates a bug or missing dependency in my configuration.
+In that case the commit history and scripts are the single source of
+truth for how I generated the results in the report.

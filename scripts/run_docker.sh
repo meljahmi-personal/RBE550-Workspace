@@ -1,26 +1,53 @@
 #!/usr/bin/env bash
-# One-command runner: (re)build image, then run your bench with any args you pass.
-# Examples:
-#   ./scripts/run_docker.sh --steps 10 --render-every 2 --no-show
-#   ./scripts/run_docker.sh ./scripts/run_rviz.sh
 set -euo pipefail
+
 IMAGE="rbe550-bench"
 
-docker build -t "${IMAGE}" .
+usage() {
+  cat <<EOF
+Usage:
+  $0 build
+      Build the Docker image.
 
-mkdir -p outputs
+  $0 bench [bench-args...]
+      Run the benchmark CLI inside Docker. Any extra args are passed to the
+      'bench' node (e.g. --algo astar --grid 64).
 
-if [[ $# -eq 0 ]]; then
-  set -- --steps 10 --render-every 2 --no-show
-fi
+  $0 rviz [planner-args...]
+      Run the RViz visualization inside Docker. Extra args are passed to the
+      planner_viz launch (e.g. algo:=astar grid:=64).
+EOF
+}
 
-logfile="outputs/run_$(date +%Y%m%d_%H%M%S).log"
+cmd="${1:-bench}"
 
-# Allow Docker to use X (run once per session on host if needed: xhost +local:root)
-docker run --rm -it \
-  --env "DISPLAY=${DISPLAY:-}" \
-  --env "QT_X11_NO_MITSHM=1" \
-  -v "/tmp/.X11-unix:/tmp/.X11-unix:rw" \
-  -v "$(pwd)/outputs:/ws/outputs" \
-  "${IMAGE}" "$@" | tee "${logfile}"
+case "$cmd" in
+  build)
+    # Just build the image and exit; do NOT start a container.
+    docker build -t "${IMAGE}" .
+    echo "Docker image '${IMAGE}' built successfully."
+    ;;
+
+  bench)
+    shift || true
+    mkdir -p outputs
+    docker run --rm -it \
+      -v "$(pwd)/outputs:/ws/outputs" \
+      "${IMAGE}" "$@"
+    ;;
+
+  rviz)
+    shift || true
+    docker run --rm -it \
+      -e DISPLAY="${DISPLAY:-}" \
+      -v /tmp/.X11-unix:/tmp/.X11-unix \
+      "${IMAGE}" \
+      ros2 launch rbe550_grid_bench planner_viz.launch.py "$@"
+    ;;
+
+  *)
+    usage
+    exit 1
+    ;;
+esac
 
