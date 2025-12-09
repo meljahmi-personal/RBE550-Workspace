@@ -1,0 +1,45 @@
+@startuml bench_all_sequence
+title rbe550_grid_bench – bench_all sequence (7 planners)
+
+actor User as U
+participant "bench (CLI)\ncli.py" as CLI
+participant "BenchRunner\nbench_runner.py" as BR
+participant "grid_utils.py" as GU
+participant "Planner facade\n(bfs_facade, dijkstra_facade,\n... jps_facade)" as FAC
+participant "Concrete planner\n(BFSPlanner … JPSPlanner)" as PL
+participant "metrics.py" as MET
+
+note top
+bench_all / run_all_benchmarks.sh runs the
+same problem instance with 7 algorithms:
+  • BFS
+  • Dijkstra
+  • Greedy
+  • A*
+  • Weighted A*
+  • Theta*
+  • JPS
+end note
+
+U -> CLI: ros2 run rbe550_grid_bench bench\n--algo <algo> --grid 64 --moves 8 ...
+CLI -> BR: main(args)\nrun_bench(args)
+
+BR -> GU: make_random_grid(size, fill, seed)\n(or load_grid_from_ascii)
+GU --> BR: Grid (obstacle map,\nstart_rc, goal_rc)
+
+loop For each algo in {bfs, dijkstra, greedy,\nastar, weighted_astar, theta_star, jps}
+  CLI -> BR: run_planner(algo, grid,\n          start_rc, goal_rc, moves)
+
+  BR -> FAC: plan(grid_rc, start_rc,\n     goal_rc, neighbors_fn)
+  FAC -> PL: plan(obst, startXY,\n     goalXY, neighbors_fn)
+  PL --> FAC: PlanResult\n(path, nodes_expanded, cost,…)
+  FAC --> BR: PathStats
+
+  BR -> MET: write_csv(PathStats,\n        csv_path)
+  MET --> BR: CSV row appended
+end
+
+BR --> CLI: overall summary
+CLI --> U: print metrics, CSV location
+
+@enduml

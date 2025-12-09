@@ -1,0 +1,62 @@
+@startuml
+skinparam backgroundColor #1e1e1e
+skinparam defaultTextAlignment center
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam ArrowColor white
+skinparam ArrowThickness 1.2
+skinparam RectangleBorderColor #ccccff
+skinparam RectangleBackgroundColor #333344
+skinparam RectangleFontColor white
+skinparam ActorBackgroundColor #555577
+skinparam ActorBorderColor #ccccff
+skinparam ActorFontColor white
+
+title rbe550_grid_bench – High-level Architecture
+
+actor "User / CLI" as User
+
+rectangle "ROS 2 Workspace" as WS #222233 {
+
+  ' ==== Front-end CLI ====
+  rectangle "bench (CLI)\n(ros2 run rbe550_grid_bench bench)" as BenchCLI
+
+  ' ==== Core bench runner ====
+  rectangle "Bench Runner\n(bench_runner.py)" as BenchRunner
+
+  ' ==== Utilities ====
+  package "Utilities" as Utils #26263a {
+    rectangle "Grid Utils\n(grid_utils.py)\n• random grids\n• ASCII maps\n• neighbors4/8" as GridUtils
+    rectangle "Metrics & Logging\n(metrics.py)\n• runtime\n• nodes expanded\n• path length\n• memory" as Metrics
+  }
+
+  ' ==== Algorithms ====
+  package "Algorithms" as Algos #26263a {
+    rectangle "BFS\n(bfs.py)" as BFS
+    rectangle "Dijkstra\n(dijkstra.py)" as Dijkstra
+    rectangle "Greedy\n(greedy.py)" as Greedy
+    rectangle "A*\n(astar.py)" as AStar
+    rectangle "Weighted A*\n(weighted_astar.py)" as WAStar
+    rectangle "Theta*\n(theta_star.py)" as Theta
+    rectangle "JPS\n(jps.py)" as JPS
+  }
+
+  ' ==== Relationships inside workspace ====
+  User --> BenchCLI : choose algo,\nproblem, options
+  BenchCLI --> BenchRunner : parse args,\ninvoke bench()
+
+  BenchRunner --> GridUtils : build/load grid,\nstart, goal
+  BenchRunner --> Metrics : record metrics
+
+  BenchRunner --> BFS
+  BenchRunner --> Dijkstra
+  BenchRunner --> Greedy
+  BenchRunner --> AStar
+  BenchRunner --> WAStar
+  BenchRunner --> Theta
+  BenchRunner --> JPS
+
+}
+
+@enduml
+

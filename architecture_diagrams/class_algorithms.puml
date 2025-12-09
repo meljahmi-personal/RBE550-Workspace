@@ -1,0 +1,46 @@
+@startuml
+package algorithms {
+
+  class PlanResult {
+    +success : bool
+    +path : PathRC
+    +nodes_expanded : int
+    +peak_open : int
+    +cost : float
+  }
+
+  class BasePlanner {
+    +name : str
+    +plan(obst, startXY, goalXY, neighbors_fn) : PlanResult
+  }
+
+  class BFSPlanner
+  class DijkstraPlanner
+  class GreedyPlanner
+  class AStarPlanner {
+    -hfun(a, b) : float
+  }
+  class WeightedAStarPlanner {
+    -w : float
+    -hfun(a, b) : float
+  }
+  class ThetaStarPlanner
+  class JPSPlanner
+
+  BasePlanner <|-- BFSPlanner
+  BasePlanner <|-- DijkstraPlanner
+  BasePlanner <|-- GreedyPlanner
+  BasePlanner <|-- AStarPlanner
+  BasePlanner <|-- WeightedAStarPlanner
+  BasePlanner <|-- ThetaStarPlanner
+  BasePlanner <|-- JPSPlanner
+
+  AStarPlanner --> PlanResult
+  BFSPlanner --> PlanResult
+  DijkstraPlanner --> PlanResult
+  GreedyPlanner --> PlanResult
+  WeightedAStarPlanner --> PlanResult
+  ThetaStarPlanner --> PlanResult
+  JPSPlanner --> PlanResult
+}
+@enduml

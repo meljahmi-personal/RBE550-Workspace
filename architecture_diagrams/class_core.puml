@@ -1,0 +1,42 @@
+@startuml
+package rbe550_grid_bench {
+
+  package core {
+    class cli {
+      +main() : void
+    }
+
+    class bench_runner {
+      +run_planner(algo, grid, start, goal, moves) : PathStats
+      +run_bench(args) : void
+    }
+
+    class grid_utils {
+      +make_random_grid(size, fill, seed) : Grid
+      +load_grid_from_ascii(path) : Grid
+      +random_free_cell(grid, rng) : RC
+      +neighbors4(r, c) : NeighborIter
+      +neighbors8(r, c) : NeighborIter
+    }
+
+    class metrics {
+      +PathStats
+      +aggregate_stats(...)
+      +write_csv(...)
+    }
+
+    class types <<typedef>> {
+      +PathRC
+      +PathStats
+      +Grid
+      +RC
+      +NeighborIter
+    }
+  }
+
+  cli --> bench_runner
+  bench_runner --> grid_utils
+  bench_runner --> metrics
+  bench_runner --> types
+}
+@enduml
