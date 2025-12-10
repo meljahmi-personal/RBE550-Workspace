@@ -318,35 +318,75 @@ benchmarks and reproducing the CSV/plots.
 
 RBE550-Workspace/
 ├── src/
-│   └── rbe550_grid_bench/          # ROS 2 package
-│       └── rbe550_grid_bench/
-│           ├── algorithms/         # bfs, dijkstra, greedy, astar, etc.
-│           ├── grid_utils.py
-│           ├── neighbors.py
-│           ├── planner_node.py
-│           ├── bench_runner.py
-│           ├── plot_bench_all.py
-│           └── ...
+│   └── rbe550_grid_bench/             # ROS 2 package (planning + benchmarking)
+│       ├── launch/
+│       │   └── bench.launch.py        # RViz launch entrypoint
+│       ├── config/
+│       │   └── rbe550.rviz            # RViz display configuration
+│       ├── rbe550_grid_bench/
+│       │   ├── algorithms/            # BFS, Dijkstra, Greedy, A*, Weighted A*,
+│       │   │                          # Theta*, JPS implementations
+│       │   ├── bench_runner.py        # Central benchmarking dispatcher
+│       │   ├── cli.py                 # `ros2 run ... bench` CLI
+│       │   ├── grid_utils.py          # Random grids, ASCII maps, sampling
+│       │   ├── neighbors.py           # 4-connected and 8-connected neighbor sets
+│       │   ├── metrics.py             # Runtime, path length, memory, CSV writer
+│       │   ├── planner_node.py        # RViz visualization node
+│       │   ├── plot_bench_all.py      # Plotting backend for benchmarks
+│       │   ├── rviz_helpers.py        # Helper functions for RViz markers
+│       │   └── maps/                  # Optional ASCII test maps (unused in release)
+│       ├── package.xml
+│       ├── setup.py
+│       └── test/                      # linters + style checks
 │
-├── scripts/
-│   ├── build.sh
-│   ├── activate.sh
-│   ├── run_rviz.sh
-│   ├── feed_rviz_demo.sh
-│   ├── run_random64.sh
-│   ├── run_random32.sh
-│   ├── run_maze32.sh
-│   ├── run_all_benchmarks.sh
-│   ├── run_docker.sh
-│   └── entrypoint.sh
+├── scripts/                           # Executable workflows
+│   ├── build.sh                       # Clean + colcon build
+│   ├── activate.sh                    # Source install/setup.bash automatically
+│   ├── run_rviz.sh                    # Host-side RViz launch wrapper
+│   ├── feed_rviz_demo.sh              # Timed simulation publisher
+│   ├── run_random32.sh                # Convenience: 32×32 random grid
+│   ├── run_random64.sh                # Convenience: 64×64 random grid
+│   ├── run_maze32.sh                  # Run on maze_32 ASCII map
+│   ├── run_all_benchmarks.sh          # Full 7-algorithm benchmark suite
+│   ├── run_docker.sh                  # Docker build/bench/rviz frontend
+│   ├── run_check.sh                   # Quick development smoke test
+│   ├── entrypoint.sh                  # Docker container entrypoint
+│   ├── start.sh                       # Developer helper
+│   └── dev/                           # Internal development/testing helpers
+│       ├── test_no_rviz.sh
+│       ├── test_with_rviz.sh
+│       ├── demo_flicker.sh
+│       └── run_demo.sh
 │
 ├── maps/
-│   └── maze_32.txt
+│   ├── maze_32.txt                    # 32×32 ASCII maze (handcrafted)
+│   └── maze_32_32.txt                 # Duplicate of the above; kept for testing
+│                                      # (both contain ASCII obstacle maps)
 │
-├── results/                        # Auto-created CSV + PNGs
-├── outputs/                        # Raw logs from CLI runs
-├── report/                         # PDF write-up (Word .docx is git-ignored)
-└── Dockerfile
+├── results/                           # Auto-generated: CSVs + PNG plots
+│   ├── bench_all.csv
+│   ├── bench_runtime_ms.png
+│   ├── bench_nodes_expanded.png
+│   ├── bench_path_len.png
+│   ├── bench_memory_nodes.png
+│   ├── bench_path_turns.png
+│   └── bench_comprehensive_dashboard.png
+│
+├── outputs/                           # Raw text logs from CLI runs
+│   └── run_*.log
+│
+├── architecture_diagrams/             # PlantUML source + exported diagrams
+│   ├── architecture.puml
+│   ├── class_core.puml
+│   ├── class_algorithms.puml
+│   ├── sequence_bench_all.puml
+│   └── *.svg / *.png
+│
+├── Dockerfile                         # Self-contained ROS 2 image
+├── README.md
+└── video/
+    └── multiple_algorithms.mkv        # Demonstration recording
+
 
 ---
 
