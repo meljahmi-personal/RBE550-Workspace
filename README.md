@@ -42,7 +42,15 @@ sudo apt install ros-humble-desktop python3-colcon-common-extensions git build-e
 
 The `ros-humble-desktop` meta‑package includes **RViz**.
 
-### 1.3 Install Python dependencies (for benchmarking and plotting)
+### 1.3 Install Python dependencies (for benchmarking and plotting)Python dependencies (non-ROS)
+
+The following Python packages are required for benchmark processing and plotting:
+
+numpy – grid arrays, algorithms
+
+pandas – reading and aggregating benchmark CSV outputs
+
+matplotlib – generating all benchmark figures
 
 The benchmarking and plotting scripts use NumPy, pandas, and Matplotlib.
 
